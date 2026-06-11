@@ -14,5 +14,3 @@ def init_db(app):
     app.config.setdefault("SQLALCHEMY_DATABASE_URI", uri)
     app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
     db.init_app(app)
-    with app.app_context():
-        db.create_all()
