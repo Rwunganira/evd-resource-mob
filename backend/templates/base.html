@@ -54,6 +54,13 @@
          href="{{ url_for('sitreps_view.list_sitreps') }}">
         <i class="bi bi-file-text me-2"></i>Situation Reports
       </a>
+      {% if current_user.is_authenticated and current_user.role == 'admin' %}
+      <hr style="border-color:#1a5276;margin:10px 20px;">
+      <a class="nav-link {% if active_page == 'users' %}active{% endif %}"
+         href="{{ url_for('users_view.list_users') }}">
+        <i class="bi bi-shield-lock me-2"></i>Users
+      </a>
+      {% endif %}
       <hr style="border-color:#1a5276;margin:10px 20px;">
       <a class="nav-link" href="{{ streamlit_url }}" target="_blank">
         <i class="bi bi-bar-chart me-2"></i>Visualizations ↗
@@ -97,5 +104,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

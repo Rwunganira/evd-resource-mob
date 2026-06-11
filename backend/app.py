@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify, redirect, url_for
+from flask import Flask, jsonify, redirect, url_for, render_template
 from flask_cors import CORS
 from flask_login import LoginManager
 from dotenv import load_dotenv
@@ -19,6 +19,7 @@ from views.resources import resources_view_bp
 from views.activities import activities_view_bp
 from views.sitreps import sitreps_view_bp
 from views.auth import auth_bp
+from views.users import users_view_bp
 
 login_manager = LoginManager()
 
@@ -71,10 +72,15 @@ def create_app():
     app.register_blueprint(resources_view_bp)
     app.register_blueprint(activities_view_bp)
     app.register_blueprint(sitreps_view_bp)
+    app.register_blueprint(users_view_bp)
 
     @app.route("/")
     def index():
         return redirect(url_for("partners_view.list_partners"))
+
+    @app.errorhandler(403)
+    def forbidden(e):
+        return render_template("403.html"), 403
 
     @app.errorhandler(404)
     def not_found(e):
