@@ -1,9 +1,16 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 from datetime import date, datetime
 from database import db
 from models import SituationReport
 
 sitreps_view_bp = Blueprint("sitreps_view", __name__)
+
+
+@sitreps_view_bp.before_request
+@login_required
+def require_login():
+    pass
 
 
 def _parse_date(val):

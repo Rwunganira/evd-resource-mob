@@ -1,9 +1,16 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 from datetime import datetime
 from database import db
 from models import Partner, PartnerPillar
 
 partners_view_bp = Blueprint("partners_view", __name__)
+
+
+@partners_view_bp.before_request
+@login_required
+def require_login():
+    pass
 
 VALID_TYPES = {
     "UN agency", "International NGO", "National NGO", "Government / MoH",

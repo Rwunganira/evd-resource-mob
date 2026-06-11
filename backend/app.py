@@ -1,6 +1,7 @@
 import os
 from flask import Flask, jsonify, redirect, url_for
 from flask_cors import CORS
+from flask_login import LoginManager
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,6 +18,9 @@ from views.partners import partners_view_bp
 from views.resources import resources_view_bp
 from views.activities import activities_view_bp
 from views.sitreps import sitreps_view_bp
+from views.auth import auth_bp
+
+login_manager = LoginManager()
 
 
 def create_app():
@@ -37,6 +41,21 @@ def create_app():
 
     init_db(app)
 
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Please log in to access this page."
+    login_manager.login_message_category = "warning"
+    login_manager.init_app(app)
+
+    from models import User
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+
+    @app.context_processor
+    def inject_globals():
+        return {"streamlit_url": os.getenv("STREAMLIT_URL", "http://localhost:8501")}
+
     # JSON API blueprints (consumed by Streamlit)
     app.register_blueprint(partners_bp)
     app.register_blueprint(resources_bp)
@@ -47,6 +66,7 @@ def create_app():
     app.register_blueprint(imports_bp)
 
     # HTML view blueprints (data management UI)
+    app.register_blueprint(auth_bp)
     app.register_blueprint(partners_view_bp)
     app.register_blueprint(resources_view_bp)
     app.register_blueprint(activities_view_bp)

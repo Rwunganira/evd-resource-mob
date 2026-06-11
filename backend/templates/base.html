@@ -26,6 +26,8 @@
     .btn-who { background:var(--who-blue); color:white; border:none; }
     .btn-who:hover { background:var(--who-dark); color:white; }
     .table th { background:#f8f9fa; font-size:.85rem; text-transform:uppercase; letter-spacing:.04em; }
+    .user-panel { padding: 10px 16px; border-top: 1px solid #1a5276; margin-top: auto; }
+    .role-badge { font-size:.65rem; padding:2px 7px; border-radius:20px; vertical-align:middle; }
   </style>
 </head>
 <body>
@@ -53,10 +55,33 @@
         <i class="bi bi-file-text me-2"></i>Situation Reports
       </a>
       <hr style="border-color:#1a5276;margin:10px 20px;">
-      <a class="nav-link" href="http://localhost:8501" target="_blank">
+      <a class="nav-link" href="{{ streamlit_url }}" target="_blank">
         <i class="bi bi-bar-chart me-2"></i>Visualizations ↗
       </a>
     </nav>
+
+    {% if current_user.is_authenticated %}
+    <div class="user-panel">
+      <div style="color:#a0c4e8;font-size:.75rem;margin-bottom:4px;">
+        <i class="bi bi-person-circle me-1"></i>
+        <span style="color:white;font-weight:600;">{{ current_user.name }}</span>
+      </div>
+      <div style="margin-bottom:8px;">
+        {% if current_user.role == 'admin' %}
+          <span class="role-badge bg-danger text-white">Admin</span>
+        {% elif current_user.role == 'editor' %}
+          <span class="role-badge bg-primary text-white">Editor</span>
+        {% else %}
+          <span class="role-badge bg-secondary text-white">Viewer</span>
+        {% endif %}
+        <span style="color:#a0c4e8;font-size:.7rem;margin-left:4px;">{{ current_user.email }}</span>
+      </div>
+      <a href="{{ url_for('auth.logout') }}" class="btn btn-sm w-100"
+         style="background:#1a5276;color:#a0c4e8;border:1px solid #2e6da0;font-size:.75rem;">
+        <i class="bi bi-box-arrow-right me-1"></i>Logout
+      </a>
+    </div>
+    {% endif %}
   </div>
 
   <div class="main-content">

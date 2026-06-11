@@ -1,9 +1,17 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 from datetime import datetime
 from database import db
 from models import Activity, Partner
 
 activities_view_bp = Blueprint("activities_view", __name__)
+
+
+@activities_view_bp.before_request
+@login_required
+def require_login():
+    pass
+
 
 VALID_TYPES = {
     "ETU Operations", "Contact Tracing", "Vaccination",
