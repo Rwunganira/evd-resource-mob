@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% set active_page = "sitreps" %}
+{% block title %}Situation Reports — WHO EVD{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h2 class="mb-0"><i class="bi bi-file-text me-2"></i>Situation Reports</h2>
+  <a href="{{ url_for('sitreps_view.new_sitrep') }}" class="btn btn-who">
+    <i class="bi bi-plus-circle me-1"></i>New SitRep
+  </a>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Date</th><th class="text-center">Day</th>
+            <th class="text-center">Confirmed Cases</th>
+            <th class="text-center">Deaths</th>
+            <th class="text-center">CFR %</th>
+            <th class="text-center">HCW Affected</th>
+            <th class="text-center">ETUs Op.</th>
+            <th class="text-end">Funding (USD)</th>
+            <th class="text-end">Gap (USD)</th>
+            <th>Created By</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in sitreps %}
+          {% set cfr = ((s.deaths / s.confirmed_cases) * 100)|round(1) if s.confirmed_cases else 0 %}
+          <tr>
+            <td><strong>{{ s.report_date.strftime('%d %b %Y') }}</strong></td>
+            <td class="text-center">{{ s.outbreak_day }}</td>
+            <td class="text-center">{{ '{:,}'.format(s.confirmed_cases) }}</td>
+            <td class="text-center text-danger fw-semibold">{{ '{:,}'.format(s.deaths) }}</td>
+            <td class="text-center">
+              <span class="{{ 'text-danger' if cfr > 50 else 'text-warning' if cfr > 30 else '' }}">
+                {{ cfr }}%
+              </span>
+            </td>
+            <td class="text-center">{{ s.healthcare_workers_affected }}</td>
+            <td class="text-center">{{ s.etus_operational }}</td>
+            <td class="text-end">{{ '${:,.0f}'.format(s.total_funding_mobilized) }}</td>
+            <td class="text-end text-danger">{{ '${:,.0f}'.format(s.funding_gap) }}</td>
+            <td><small class="text-muted">{{ s.created_by or '—' }}</small></td>
+          </tr>
+          {% if s.notes %}
+          <tr class="table-light">
+            <td colspan="10" class="py-1 ps-4">
+              <small class="text-muted"><i class="bi bi-chat-text me-1"></i>{{ s.notes }}</small>
+            </td>
+          </tr>
+          {% endif %}
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted py-4">No situation reports yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer text-muted small">{{ sitreps|length }} report(s)</div>
+</div>
+{% endblock %}

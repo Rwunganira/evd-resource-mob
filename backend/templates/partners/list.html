@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% set active_page = "partners" %}
+{% block title %}Partners — WHO EVD{% endblock %}
+
+{% macro status_badge(s) %}
+  {% if s == "Operational" %}<span class="badge bg-success">{{ s }}</span>
+  {% elif s == "Mobilizing" %}<span class="badge bg-info text-dark">{{ s }}</span>
+  {% elif s == "On stand-by" %}<span class="badge bg-warning text-dark">{{ s }}</span>
+  {% elif s == "Withdrawing" or s == "Not present" %}<span class="badge bg-secondary">{{ s }}</span>
+  {% else %}<span class="badge bg-secondary">{{ s }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h2 class="mb-0"><i class="bi bi-people me-2"></i>Partners</h2>
+  <a href="{{ url_for('partners_view.new_partner') }}" class="btn btn-who">
+    <i class="bi bi-plus-circle me-1"></i>Add Partner
+  </a>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-center">
+      <div class="col-md-3">
+        <select name="type" class="form-select form-select-sm">
+          <option value="">All Types</option>
+          {% for t in types %}
+            <option value="{{ t }}" {% if t == request.args.get('type') %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for s in statuses %}
+            <option value="{{ s }}" {% if s == request.args.get('status') %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <input type="text" name="country" class="form-control form-control-sm"
+               placeholder="Country..." value="{{ request.args.get('country','') }}">
+      </div>
+      <div class="col-md-3">
+        <button type="submit" class="btn btn-who btn-sm w-100">Filter</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Partner</th>
+            <th>Acronym</th>
+            <th>Type</th>
+            <th>Country</th>
+            <th>Contact</th>
+            <th>Status</th>
+            <th>Pillar TWGs</th>
+            <th class="text-center">Resources</th>
+            <th class="text-center">Activities</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in partners %}
+          <tr>
+            <td><strong>{{ p.name }}</strong></td>
+            <td>{{ p.acronym or '—' }}</td>
+            <td>{{ p.partner_type }}</td>
+            <td>{{ p.country }}</td>
+            <td>
+              {{ p.contact_person or '—' }}
+              {% if p.contact_phone %}<br><small class="text-muted"><i class="bi bi-telephone"></i> {{ p.contact_phone }}</small>{% endif %}
+              {% if p.contact_email %}<br><small class="text-muted">{{ p.contact_email }}</small>{% endif %}
+            </td>
+            <td>{{ status_badge(p.status) }}</td>
+            <td>
+              {% for twg in p.pillar_twgs %}
+                <span class="badge bg-light text-dark border me-1 mb-1" style="font-size:0.7rem;">{{ twg.pillar_name }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endfor %}
+            </td>
+            <td class="text-center">{{ p.resources|length }}</td>
+            <td class="text-center">{{ p.activities|length }}</td>
+            <td class="text-end">
+              <a href="{{ url_for('partners_view.edit_partner', partner_id=p.id) }}"
+                 class="btn btn-sm btn-outline-secondary me-1" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{{ url_for('partners_view.delete_partner', partner_id=p.id) }}"
+                    class="d-inline" onsubmit="return confirm('Mark {{ p.name }} as Not present?')">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Mark not present">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted py-4">No partners found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer text-muted small">{{ partners|length }} partner(s)</div>
+</div>
+{% endblock %}

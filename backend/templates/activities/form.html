@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% set active_page = "activities" %}
+{% block title %}{{ 'Edit' if activity else 'New' }} Activity — WHO EVD{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="mb-0">
+    <i class="bi bi-geo-alt me-2"></i>{{ 'Edit' if activity else 'New' }} Activity
+  </h2>
+</div>
+
+<div class="card" style="max-width:800px;">
+  <div class="card-body">
+    <form method="post">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Partner <span class="text-danger">*</span></label>
+          <select name="partner_id" class="form-select" required>
+            <option value="">— select partner —</option>
+            {% for p in partners %}
+              <option value="{{ p.id }}"
+                {% if activity and activity.partner_id == p.id %}selected{% endif %}>
+                {{ p.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Activity Type <span class="text-danger">*</span></label>
+          <select name="activity_type" class="form-select" required>
+            <option value="">— select type —</option>
+            {% for t in ['ETU Operations','Contact Tracing','Vaccination','Lab','Community Engagement','Logistics'] %}
+              <option value="{{ t }}"
+                {% if activity and activity.activity_type == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Pillar</label>
+          <select name="pillar" class="form-select">
+            <option value="">— select pillar —</option>
+            {% for p in pillars %}
+              <option value="{{ p }}"
+                {% if activity and activity.pillar == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Funding Source</label>
+          <select name="funding_source" class="form-select">
+            <option value="">— select funding source —</option>
+            {% for f in funding_sources %}
+              <option value="{{ f }}"
+                {% if activity and activity.funding_source == f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Timeline Status</label>
+          <select name="timeline_status" class="form-select">
+            {% for ts in timeline_statuses %}
+              <option value="{{ ts }}"
+                {% if activity and activity.timeline_status == ts %}selected
+                {% elif not activity and ts == 'Not started' %}selected
+                {% endif %}>{{ ts }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Modality of Support</label>
+          <select name="modality_of_support" class="form-select">
+            <option value="">— select modality —</option>
+            {% for m in modalities %}
+              <option value="{{ m }}"
+                {% if activity and activity.modality_of_support == m %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Location <span class="text-danger">*</span></label>
+          <input type="text" name="location" class="form-control" required
+                 value="{{ activity.location if activity else '' }}"
+                 placeholder="e.g. Equateur Province">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">District</label>
+          <input type="text" name="district" class="form-control"
+                 value="{{ activity.district or '' if activity else '' }}"
+                 placeholder="e.g. Bikoro Health Zone">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Status</label>
+          <select name="status" class="form-select">
+            {% for s in ['Planned','Ongoing','Completed','Suspended','Cancelled'] %}
+              <option value="{{ s }}"
+                {% if activity and activity.status == s %}selected
+                {% elif not activity and s == 'Planned' %}selected
+                {% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Start Date</label>
+          <input type="date" name="start_date" class="form-control"
+                 value="{{ activity.start_date.isoformat() if activity and activity.start_date else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">End Date</label>
+          <input type="date" name="end_date" class="form-control"
+                 value="{{ activity.end_date.isoformat() if activity and activity.end_date else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Beneficiaries Reached</label>
+          <input type="number" name="beneficiaries_reached" class="form-control" min="0"
+                 value="{{ activity.beneficiaries_reached or 0 if activity else 0 }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold">Description</label>
+          <textarea name="description" class="form-control" rows="3">{{ activity.description or '' if activity else '' }}</textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-who">
+          <i class="bi bi-check-circle me-1"></i>{{ 'Update' if activity else 'Create' }} Activity
+        </button>
+        <a href="{{ url_for('activities_view.list_activities') }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

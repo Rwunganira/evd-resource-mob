@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% set active_page = "resources" %}
+{% block title %}{{ 'Edit' if resource else 'New' }} Resource — WHO EVD{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="mb-0">
+    <i class="bi bi-box-seam me-2"></i>{{ 'Edit' if resource else 'New' }} Resource
+  </h2>
+</div>
+
+<div class="card" style="max-width:800px;">
+  <div class="card-body">
+    <form method="post">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Partner <span class="text-danger">*</span></label>
+          <select name="partner_id" class="form-select" required>
+            <option value="">— select partner —</option>
+            {% for p in partners %}
+              <option value="{{ p.id }}"
+                {% if resource and resource.partner_id == p.id %}selected{% endif %}>
+                {{ p.name }} ({{ p.status }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Resource Type <span class="text-danger">*</span></label>
+          <select name="resource_type" class="form-select" required>
+            {% for t in ['Funding','PPE','Personnel','Vaccines','Logistics','Technical'] %}
+              <option value="{{ t }}"
+                {% if resource and resource.resource_type == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Status</label>
+          <select name="status" class="form-select">
+            {% for s in ['Pipeline','Committed','Deployed','Under Review'] %}
+              <option value="{{ s }}"
+                {% if resource and resource.status == s %}selected
+                {% elif not resource and s == 'Pipeline' %}selected
+                {% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold">Description</label>
+          <textarea name="description" class="form-control" rows="2">{{ resource.description or '' if resource else '' }}</textarea>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Amount</label>
+          <input type="number" name="amount" class="form-control" min="0" step="0.01"
+                 value="{{ resource.amount if resource else 0 }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Currency</label>
+          <select name="currency" class="form-select">
+            {% for c in ['USD','EUR','GBP','In-kind'] %}
+              <option value="{{ c }}"
+                {% if resource and resource.currency == c %}selected
+                {% elif not resource and c == 'USD' %}selected
+                {% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Reporting Frequency</label>
+          <select name="reporting_frequency" class="form-select">
+            {% for f in ['Daily','Weekly','Biweekly','Monthly','Quarterly'] %}
+              <option value="{{ f }}"
+                {% if resource and resource.reporting_frequency == f %}selected
+                {% elif not resource and f == 'Monthly' %}selected
+                {% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Commitment Date</label>
+          <input type="date" name="commitment_date" class="form-control"
+                 value="{{ resource.commitment_date.isoformat() if resource and resource.commitment_date else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Deployment Date</label>
+          <input type="date" name="deployment_date" class="form-control"
+                 value="{{ resource.deployment_date.isoformat() if resource and resource.deployment_date else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Next Report Due</label>
+          <input type="date" name="next_report_due" class="form-control"
+                 value="{{ resource.next_report_due.isoformat() if resource and resource.next_report_due else '' }}">
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-who">
+          <i class="bi bi-check-circle me-1"></i>{{ 'Update' if resource else 'Create' }} Resource
+        </button>
+        <a href="{{ url_for('resources_view.list_resources') }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

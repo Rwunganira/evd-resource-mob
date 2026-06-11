@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% set active_page = "activities" %}
+{% block title %}Activities — WHO EVD{% endblock %}
+
+{% macro status_badge(s) %}
+  {% if s == "Ongoing" or s == "In progress" %}<span class="badge bg-success">{{ s }}</span>
+  {% elif s == "Planned" or s == "Not started" %}<span class="badge bg-primary">{{ s }}</span>
+  {% elif s == "Completed" %}<span class="badge bg-info text-dark">{{ s }}</span>
+  {% elif s == "Suspended" or s == "Delayed" %}<span class="badge bg-warning text-dark">{{ s }}</span>
+  {% elif s == "Cancelled" %}<span class="badge bg-danger">{{ s }}</span>
+  {% else %}<span class="badge bg-secondary">{{ s }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h2 class="mb-0"><i class="bi bi-geo-alt me-2"></i>Activities</h2>
+  <a href="{{ url_for('activities_view.new_activity') }}" class="btn btn-who">
+    <i class="bi bi-plus-circle me-1"></i>Add Activity
+  </a>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-center">
+      <div class="col-md-3">
+        <select name="type" class="form-select form-select-sm">
+          <option value="">All Types</option>
+          {% for t in types %}
+            <option value="{{ t }}" {% if t == request.args.get('type') %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for s in ['Planned','Ongoing','Completed','Suspended','Cancelled'] %}
+            <option value="{{ s }}" {% if s == request.args.get('status') %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="pillar" class="form-select form-select-sm">
+          <option value="">All Pillars</option>
+          {% for p in pillars %}
+            <option value="{{ p }}" {% if p == request.args.get('pillar') %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="funding_source" class="form-select form-select-sm">
+          <option value="">All Funding</option>
+          {% for f in funding_sources %}
+            <option value="{{ f }}" {% if f == request.args.get('funding_source') %}selected{% endif %}>{{ f }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="timeline_status" class="form-select form-select-sm">
+          <option value="">All Timelines</option>
+          {% for ts in timeline_statuses %}
+            <option value="{{ ts }}" {% if ts == request.args.get('timeline_status') %}selected{% endif %}>{{ ts }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="modality" class="form-select form-select-sm">
+          <option value="">All Modalities</option>
+          {% for m in modalities %}
+            <option value="{{ m }}" {% if m == request.args.get('modality') %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-who btn-sm w-100">Filter</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Partner</th><th>Activity Type</th><th>Pillar</th><th>Location</th>
+            <th>Start</th><th>End</th><th>Status</th><th>Timeline</th><th>Funding</th><th>Modality</th><th>Description</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in activities %}
+          <tr>
+            <td><strong>{{ a.partner.name }}</strong></td>
+            <td>{{ a.activity_type }}</td>
+            <td>{{ a.pillar or '—' }}</td>
+            <td>{{ a.location }}</td>
+            <td>{{ a.start_date.strftime('%d %b %Y') if a.start_date else '—' }}</td>
+            <td>{{ a.end_date.strftime('%d %b %Y') if a.end_date else '—' }}</td>
+            <td>{{ status_badge(a.status) }}</td>
+            <td>{{ status_badge(a.timeline_status) }}</td>
+            <td>{{ a.funding_source or '—' }}</td>
+            <td>{{ a.modality_of_support or '—' }}</td>
+            <td><small class="text-muted">{{ a.description or '—' }}</small></td>
+            <td class="text-end">
+              <a href="{{ url_for('activities_view.edit_activity', activity_id=a.id) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="12" class="text-center text-muted py-4">No activities found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer text-muted small">{{ activities|length }} activity(ies)</div>
+</div>
+{% endblock %}
