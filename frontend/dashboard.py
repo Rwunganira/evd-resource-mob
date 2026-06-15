@@ -239,6 +239,10 @@ elif page == "Partner Tracker":
 
     df = pd.DataFrame(partners)
 
+    if df.empty:
+        st.info("No partners found.")
+        st.stop()
+
     # Filters
     col1, col2, col3 = st.columns(3)
     with col1:
