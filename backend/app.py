@@ -14,6 +14,8 @@ from routes.reports import reports_bp
 from routes.funding_gap import funding_gap_bp
 from routes.partner_reports import partner_reports_bp
 from routes.imports import imports_bp
+from routes.government_activities import gov_activities_bp
+from routes.partner_contributions import partner_contributions_bp
 from views.partners import partners_view_bp
 from views.resources import resources_view_bp
 from views.activities import activities_view_bp
@@ -65,6 +67,8 @@ def create_app():
     app.register_blueprint(funding_gap_bp)
     app.register_blueprint(partner_reports_bp)
     app.register_blueprint(imports_bp)
+    app.register_blueprint(gov_activities_bp)
+    app.register_blueprint(partner_contributions_bp)
 
     # HTML view blueprints (data management UI)
     app.register_blueprint(auth_bp)

@@ -285,3 +285,117 @@ class PartnerReport(db.Model):
 
     def __repr__(self):
         return f"<PartnerReport partner={self.partner_id} week={self.report_week} submitted={self.submitted}>"
+
+
+class GovernmentActivity(db.Model):
+    __tablename__ = "government_activities"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    activity_number = db.Column(db.String(10))
+    pillar          = db.Column(db.String(100))
+    pillar_number   = db.Column(db.Integer)
+    sub_section     = db.Column(db.String(100))
+    activity_name   = db.Column(db.Text, nullable=False)
+    total_cost_usd  = db.Column(db.Float, default=0)
+    status          = db.Column(db.String(50), default="Planned")
+    priority        = db.Column(db.String(20), default="Medium")
+    notes           = db.Column(db.Text)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at      = db.Column(db.DateTime, default=datetime.utcnow,
+                                onupdate=datetime.utcnow)
+
+    @property
+    def total_partner_support(self):
+        return sum(c.amount_pledged_usd or 0 for c in self.partner_contributions)
+
+    @property
+    def funding_gap(self):
+        return max(0, (self.total_cost_usd or 0) - self.total_partner_support)
+
+    @property
+    def coverage_pct(self):
+        if not self.total_cost_usd:
+            return 0
+        return min(100, self.total_partner_support / self.total_cost_usd * 100)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "activity_number": self.activity_number,
+            "pillar": self.pillar,
+            "pillar_number": self.pillar_number,
+            "sub_section": self.sub_section,
+            "activity_name": self.activity_name,
+            "total_cost_usd": self.total_cost_usd or 0,
+            "status": self.status,
+            "priority": self.priority,
+            "notes": self.notes,
+            "total_partner_support": round(self.total_partner_support, 2),
+            "funding_gap": round(self.funding_gap, 2),
+            "coverage_pct": round(self.coverage_pct, 1),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<GovernmentActivity {self.activity_number} — {self.activity_name[:50]}>"
+
+
+class PartnerContribution(db.Model):
+    __tablename__ = "partner_contributions"
+
+    id                     = db.Column(db.Integer, primary_key=True)
+    government_activity_id = db.Column(db.Integer,
+                               db.ForeignKey("government_activities.id"),
+                               nullable=False)
+    partner_id             = db.Column(db.Integer,
+                               db.ForeignKey("partners.id"),
+                               nullable=False)
+    amount_pledged_usd     = db.Column(db.Float, default=0)
+    amount_available_usd   = db.Column(db.Float, default=0)
+    amount_to_mobilize_usd = db.Column(db.Float, default=0)
+    amount_disbursed_usd   = db.Column(db.Float, default=0)
+    modality               = db.Column(db.String(100), default="Direct Implementation")
+    status                 = db.Column(db.String(50), default="Pledged")
+    notes                  = db.Column(db.Text)
+    created_at             = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at             = db.Column(db.DateTime, default=datetime.utcnow,
+                                       onupdate=datetime.utcnow)
+
+    government_activity = db.relationship("GovernmentActivity",
+                            backref="partner_contributions")
+    partner             = db.relationship("Partner",
+                            backref="contributions")
+
+    @property
+    def balance_usd(self):
+        return max(0, (self.amount_pledged_usd or 0) - (self.amount_disbursed_usd or 0))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "government_activity_id": self.government_activity_id,
+            "partner_id": self.partner_id,
+            "partner_name": self.partner.name if self.partner else None,
+            "activity_name": self.government_activity.activity_name
+                             if self.government_activity else None,
+            "pillar": self.government_activity.pillar
+                      if self.government_activity else None,
+            "pillar_number": self.government_activity.pillar_number
+                             if self.government_activity else None,
+            "amount_pledged_usd": self.amount_pledged_usd or 0,
+            "amount_available_usd": self.amount_available_usd or 0,
+            "amount_to_mobilize_usd": self.amount_to_mobilize_usd or 0,
+            "amount_disbursed_usd": self.amount_disbursed_usd or 0,
+            "balance_usd": self.balance_usd,
+            "modality": self.modality,
+            "status": self.status,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return (f"<PartnerContribution partner={self.partner_id} "
+                f"activity={self.government_activity_id} "
+                f"${self.amount_pledged_usd}>")
