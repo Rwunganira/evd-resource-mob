@@ -14,14 +14,14 @@ from routes.reports import reports_bp
 from routes.funding_gap import funding_gap_bp
 from routes.partner_reports import partner_reports_bp
 from routes.imports import imports_bp
-from routes.government_activities import gov_activities_bp
-from routes.partner_contributions import partner_contributions_bp
+from routes.evd import evd_bp
 from views.partners import partners_view_bp
 from views.resources import resources_view_bp
 from views.activities import activities_view_bp
 from views.sitreps import sitreps_view_bp
 from views.auth import auth_bp
 from views.users import users_view_bp
+from views.evd import evd_view_bp
 
 login_manager = LoginManager()
 
@@ -67,8 +67,7 @@ def create_app():
     app.register_blueprint(funding_gap_bp)
     app.register_blueprint(partner_reports_bp)
     app.register_blueprint(imports_bp)
-    app.register_blueprint(gov_activities_bp)
-    app.register_blueprint(partner_contributions_bp)
+    app.register_blueprint(evd_bp)
 
     # HTML view blueprints (data management UI)
     app.register_blueprint(auth_bp)
@@ -77,6 +76,7 @@ def create_app():
     app.register_blueprint(activities_view_bp)
     app.register_blueprint(sitreps_view_bp)
     app.register_blueprint(users_view_bp)
+    app.register_blueprint(evd_view_bp)
 
     @app.route("/")
     def index():

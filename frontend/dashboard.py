@@ -129,8 +129,8 @@ with st.sidebar:
             "3W Matrix",
             "Situation Reports",
             "Reports & Export",
-            "📋 Government Activities",
-            "🤝 Partner Contributions",
+            "📊 EVD Coverage Analysis",
+            "💰 EVD Funding Matrix",
         ],
         label_visibility="collapsed",
     )
@@ -780,974 +780,395 @@ elif page == "Reports & Export":
         st.success("Excel report ready for download.")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 7 — GOVERNMENT ACTIVITIES
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "📋 Government Activities":
-    # ── colour palette ────────────────────────────────────────────────────────
-    C_BLUE   = "#0093D5"
-    C_DARK   = "#003865"
-    C_GREEN  = "#1E8449"
-    C_AMBER  = "#D97706"
-    C_RED    = "#C0392B"
-    C_LBLUE  = "#EAF7FB"
-
-    @st.cache_data(ttl=60)
-    def _get_gov_summary():
-        return api_get("government-activities/summary")
-
-    @st.cache_data(ttl=60)
-    def _get_gov_activities(pillar="", status="", priority=""):
-        params = {}
-        if pillar:   params["pillar"]   = pillar
-        if status:   params["status"]   = status
-        if priority: params["priority"] = priority
-        return api_get("government-activities", params or None)
-
-    PILLAR_SHORT = {
-        1: "Leadership & Coord.",
-        2: "Epi Surveillance",
-        3: "Laboratory",
-        4: "Case Mgmt/IPC",
-        5: "RCCE",
-        6: "Ops & Logistics",
-        7: "Research & SI",
-    }
-    PILLAR_FULL = {
-        1: "Leadership and Coordination",
-        2: "Epidemiological Surveillance",
-        3: "Laboratory and Diagnostics",
-        4: "Case Management, IPC/WASH and SDB",
-        5: "Risk Communication and Community Engagement",
-        6: "Operational Support and Logistics",
-        7: "Research and Strategic Information",
-    }
-
-    st.title("Government Activity Register")
-    st.caption("Source of truth for all preparedness activities across 7 pillars")
-
-    col_refresh, _ = st.columns([1, 6])
-    with col_refresh:
-        if st.button("🔄 Refresh", key="ga_refresh"):
-            st.cache_data.clear()
-            st.rerun()
-
-    summary, err = _get_gov_summary()
-    if err:
-        st.warning(f"API offline — {err}")
-        st.info("Start Flask: `python app.py`")
-        st.stop()
-
-    # ── Top metrics ───────────────────────────────────────────────────────────
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Activities", summary.get("total_activities", 0))
-    m2.metric("Govt Budget (USD)",
-              f"${summary.get('total_cost_usd', 0):,.0f}")
-    m3.metric("Partner Support (USD)",
-              f"${summary.get('total_partner_support', 0):,.0f}")
-    m4.metric("Funding Gap (USD)",
-              f"${summary.get('total_funding_gap', 0):,.0f}")
-
-    # ── Coverage progress bar ─────────────────────────────────────────────────
-    cov = summary.get("coverage_pct", 0)
-    bar_color = C_GREEN if cov >= 75 else (C_AMBER if cov >= 50 else C_RED)
-    st.markdown(
-        f"**Overall Funding Coverage**  &nbsp; "
-        f"<span style='color:{bar_color};font-weight:700;'>{cov:.1f}%</span> "
-        f"of total budget covered by partners",
-        unsafe_allow_html=True,
-    )
-    st.progress(min(int(cov), 100))
-
-    st.divider()
-
-    # ── Filters ───────────────────────────────────────────────────────────────
-    fc1, fc2, fc3, fc4 = st.columns(4)
-    with fc1:
-        f_pillar = st.selectbox(
-            "Pillar", ["All"] + [f"Pillar {n} — {v}" for n, v in PILLAR_FULL.items()],
-            key="ga_f_pillar",
-        )
-    with fc2:
-        f_status = st.selectbox(
-            "Status", ["All", "Planned", "Active", "Completed"],
-            key="ga_f_status",
-        )
-    with fc3:
-        f_priority = st.selectbox(
-            "Priority", ["All", "High", "Medium", "Low"],
-            key="ga_f_priority",
-        )
-    with fc4:
-        f_coverage = st.selectbox(
-            "Coverage", ["All", "Fully funded", "Partially funded", "Unfunded"],
-            key="ga_f_coverage",
-        )
-
-    pillar_q   = f_pillar.split("—")[1].strip() if f_pillar != "All" else ""
-    status_q   = f_status   if f_status   != "All" else ""
-    priority_q = f_priority if f_priority != "All" else ""
-
-    act_data, err2 = _get_gov_activities(pillar_q, status_q, priority_q)
-    if err2 or not act_data:
-        st.warning("No activity data available.")
-        st.stop()
-
-    grouped = act_data.get("grouped", [])
-
-    # Apply coverage filter client-side
-    if f_coverage != "All":
-        for grp in grouped:
-            if f_coverage == "Fully funded":
-                grp["activities"] = [a for a in grp["activities"] if a["funding_gap"] == 0 and a["total_cost_usd"] > 0]
-            elif f_coverage == "Partially funded":
-                grp["activities"] = [a for a in grp["activities"] if 0 < a["funding_gap"] < a["total_cost_usd"]]
-            elif f_coverage == "Unfunded":
-                grp["activities"] = [a for a in grp["activities"] if a["total_partner_support"] == 0 and a["total_cost_usd"] > 0]
-        grouped = [g for g in grouped if g["activities"]]
-
-    # ── Init session state for edit ───────────────────────────────────────────
-    if "ga_edit_id" not in st.session_state:
-        st.session_state.ga_edit_id = None
-
-    # ── Pillar accordions ─────────────────────────────────────────────────────
-    for grp in sorted(grouped, key=lambda x: x.get("pillar_number", 99)):
-        pnum   = grp.get("pillar_number", 0)
-        pname  = grp.get("pillar_name", "")
-        acts   = grp.get("activities", [])
-
-        if not acts:
-            continue
-
-        p_cost    = sum(a["total_cost_usd"] for a in acts)
-        p_support = sum(a["total_partner_support"] for a in acts)
-        p_gap     = sum(a["funding_gap"] for a in acts)
-        p_cov     = round(p_support / p_cost * 100, 1) if p_cost else 0
-
-        title_color = C_GREEN if p_cov >= 75 else (C_AMBER if p_cov >= 50 else C_RED)
-        expander_label = (
-            f"Pillar {pnum} — {pname}  |  "
-            f"${p_cost:,.0f}  |  Coverage: {p_cov:.0f}%  |  Gap: ${p_gap:,.0f}"
-        )
-
-        with st.expander(expander_label, expanded=(pnum == 1)):
-            st.markdown(
-                f"<div style='color:{title_color};font-weight:700;margin-bottom:8px;'>"
-                f"Pillar {pnum}: {p_cov:.1f}% funded | "
-                f"${p_support:,.0f} of ${p_cost:,.0f} covered</div>",
-                unsafe_allow_html=True,
-            )
-
-            # Table header
-            hcols = st.columns([0.4, 3.5, 1.2, 1.2, 1.2, 0.8, 0.9, 0.8, 0.7])
-            headers = ["#", "Activity", "Cost (USD)", "Support (USD)", "Gap (USD)",
-                       "Cov %", "Status", "Priority", ""]
-            for hc, ht in zip(hcols, headers):
-                hc.markdown(f"**{ht}**")
-            st.divider()
-
-            for a in acts:
-                gap_color = C_GREEN if a["funding_gap"] == 0 else \
-                            (C_AMBER if a["funding_gap"] < a["total_cost_usd"] * 0.5 else C_RED)
-                cov_color = C_GREEN if a["coverage_pct"] >= 75 else \
-                            (C_AMBER if a["coverage_pct"] >= 50 else C_RED)
-
-                row = st.columns([0.4, 3.5, 1.2, 1.2, 1.2, 0.8, 0.9, 0.8, 0.7])
-                row[0].write(a.get("activity_number", ""))
-                row[1].write(a["activity_name"])
-                row[2].write(f"${a['total_cost_usd']:,.0f}")
-                row[3].write(f"${a['total_partner_support']:,.0f}")
-                row[4].markdown(
-                    f"<span style='color:{gap_color};font-weight:600;'>"
-                    f"${a['funding_gap']:,.0f}</span>",
-                    unsafe_allow_html=True,
-                )
-                row[5].markdown(
-                    f"<span style='color:{cov_color};font-weight:600;'>"
-                    f"{a['coverage_pct']:.0f}%</span>",
-                    unsafe_allow_html=True,
-                )
-                row[6].write(a.get("status", ""))
-                row[7].write(a.get("priority", ""))
-                if row[8].button("✏️", key=f"edit_{a['id']}", help="Edit activity"):
-                    st.session_state.ga_edit_id = a["id"]
-
-    # ── Edit form ─────────────────────────────────────────────────────────────
-    if st.session_state.ga_edit_id is not None:
-        edit_id = st.session_state.ga_edit_id
-        act_detail, _ = api_get(f"government-activities/{edit_id}")
-        if act_detail:
-            st.divider()
-            st.subheader(f"Edit Activity #{act_detail.get('activity_number', edit_id)}")
-            with st.form(f"edit_activity_{edit_id}"):
-                e1, e2 = st.columns(2)
-                e_pillar = e1.selectbox(
-                    "Pillar",
-                    options=list(PILLAR_FULL.values()),
-                    index=max(0, (act_detail.get("pillar_number") or 1) - 1),
-                    key=f"ep_{edit_id}",
-                )
-                e_sub = e2.text_input("Sub-section",
-                                      value=act_detail.get("sub_section", ""),
-                                      key=f"es_{edit_id}")
-                e3, e4 = st.columns([1, 3])
-                e_num = e3.text_input("Activity Number",
-                                      value=act_detail.get("activity_number", ""),
-                                      key=f"en_{edit_id}")
-                e_name = e4.text_area("Activity Name",
-                                      value=act_detail.get("activity_name", ""),
-                                      height=80, key=f"ename_{edit_id}")
-                e5, e6, e7 = st.columns(3)
-                e_cost = e5.number_input("Total Cost USD",
-                                         value=float(act_detail.get("total_cost_usd", 0)),
-                                         min_value=0.0, step=1000.0,
-                                         key=f"ec_{edit_id}")
-                e_status = e6.selectbox("Status",
-                                        ["Planned", "Active", "Completed", "Suspended"],
-                                        index=["Planned", "Active", "Completed", "Suspended"]
-                                        .index(act_detail.get("status", "Planned")),
-                                        key=f"est_{edit_id}")
-                e_priority = e7.selectbox("Priority", ["High", "Medium", "Low"],
-                                          index=["High", "Medium", "Low"]
-                                          .index(act_detail.get("priority", "Medium")),
-                                          key=f"epri_{edit_id}")
-                e_notes = st.text_area("Notes",
-                                       value=act_detail.get("notes", "") or "",
-                                       height=60, key=f"enotes_{edit_id}")
-
-                save_col, susp_col, cancel_col = st.columns(3)
-                save_btn   = save_col.form_submit_button("💾 Save Changes", type="primary")
-                susp_btn   = susp_col.form_submit_button("🚫 Mark Suspended")
-                cancel_btn = cancel_col.form_submit_button("✖ Cancel")
-
-                pnum_map = {v: k for k, v in PILLAR_FULL.items()}
-
-                if save_btn:
-                    payload = {
-                        "activity_number": e_num,
-                        "pillar": e_pillar,
-                        "pillar_number": pnum_map.get(e_pillar, act_detail.get("pillar_number")),
-                        "sub_section": e_sub,
-                        "activity_name": e_name,
-                        "total_cost_usd": e_cost,
-                        "status": e_status,
-                        "priority": e_priority,
-                        "notes": e_notes,
-                    }
-                    resp, code = api_put(f"government-activities/{edit_id}", payload)
-                    if code == 200:
-                        st.success("Activity updated!")
-                        st.session_state.ga_edit_id = None
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error(resp.get("message", "Update failed"))
-
-                if susp_btn:
-                    resp, code = api_delete(f"government-activities/{edit_id}")
-                    if code == 200:
-                        st.warning("Activity suspended.")
-                        st.session_state.ga_edit_id = None
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error(resp.get("message", "Suspension failed"))
-
-                if cancel_btn:
-                    st.session_state.ga_edit_id = None
-                    st.rerun()
-
-    # ── Add new activity ──────────────────────────────────────────────────────
-    st.divider()
-    with st.expander("➕ Add New Activity", expanded=False):
-        with st.form("add_gov_activity"):
-            na1, na2 = st.columns(2)
-            na_pillar = na1.selectbox("Pillar *",
-                                      [f"Pillar {n} — {v}" for n, v in PILLAR_FULL.items()])
-            na_sub    = na2.text_input("Sub-section (e.g. 'A. Leadership and Coordination')")
-            na3, na4 = st.columns([1, 3])
-            na_num    = na3.text_input("Activity Number (e.g. '16.0')")
-            na_name   = na4.text_area("Activity Name *", height=80)
-            na5, na6, na7 = st.columns(3)
-            na_cost     = na5.number_input("Total Cost USD", min_value=0.0, step=1000.0)
-            na_status   = na6.selectbox("Status", ["Planned", "Active", "Completed", "Suspended"])
-            na_priority = na7.selectbox("Priority", ["High", "Medium", "Low"])
-            na_notes    = st.text_area("Notes (optional)", height=60)
-
-            if st.form_submit_button("➕ Add Activity", type="primary"):
-                if not na_name.strip():
-                    st.error("Activity name is required.")
-                else:
-                    pnum_sel = int(na_pillar.split(" ")[1])
-                    resp, code = api_post("government-activities", {
-                        "activity_number": na_num,
-                        "pillar": PILLAR_FULL[pnum_sel],
-                        "pillar_number": pnum_sel,
-                        "sub_section": na_sub,
-                        "activity_name": na_name,
-                        "total_cost_usd": na_cost,
-                        "status": na_status,
-                        "priority": na_priority,
-                        "notes": na_notes,
-                    })
-                    if code in (200, 201):
-                        st.success("Activity added!")
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error(resp.get("message", "Error adding activity"))
-
-    # ── Pillar summary chart ──────────────────────────────────────────────────
-    st.divider()
-    st.subheader("Pillar Funding Overview")
-    by_pillar = summary.get("by_pillar", [])
-    if by_pillar:
-        chart_df = pd.DataFrame(by_pillar)
-        chart_df["short_name"] = chart_df["pillar_number"].map(PILLAR_SHORT)
-
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            name="Govt Budget",
-            x=chart_df["short_name"],
-            y=chart_df["total_cost"],
-            marker_color="#888888",
-            opacity=0.7,
-        ))
-        fig.add_trace(go.Bar(
-            name="Partner Support",
-            x=chart_df["short_name"],
-            y=chart_df["total_support"],
-            marker_color=C_BLUE,
-        ))
-        fig.add_trace(go.Scatter(
-            name="Coverage %",
-            x=chart_df["short_name"],
-            y=chart_df["coverage_pct"],
-            mode="lines+markers",
-            yaxis="y2",
-            line=dict(color=C_GREEN, width=2),
-            marker=dict(size=8),
-        ))
-        fig.update_layout(
-            barmode="overlay",
-            height=380,
-            margin=dict(t=20, b=0),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            yaxis=dict(title="USD"),
-            yaxis2=dict(title="Coverage %", overlaying="y", side="right",
-                        range=[0, 110]),
-        )
-        st.plotly_chart(fig, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE 8 — PARTNER CONTRIBUTIONS
+# PAGE 7 — EVD COVERAGE ANALYSIS  (read-only)
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "🤝 Partner Contributions":
+elif page == "📊 EVD Coverage Analysis":
     C_BLUE  = "#0093D5"
     C_DARK  = "#003865"
     C_GREEN = "#1E8449"
     C_AMBER = "#D97706"
     C_RED   = "#C0392B"
-    C_LBLUE = "#EAF7FB"
 
     @st.cache_data(ttl=60)
-    def _get_matrix():
-        return api_get("partner-contributions/matrix")
+    def _evd_summary():
+        return api_get("evd/summary")
 
     @st.cache_data(ttl=60)
-    def _get_gaps():
-        return api_get("partner-contributions/gaps")
+    def _evd_activities():
+        return api_get("evd/activities")
 
     @st.cache_data(ttl=60)
-    def _get_all_partners():
-        return api_get("partners")
+    def _evd_gaps():
+        return api_get("evd/gaps")
 
-    @st.cache_data(ttl=60)
-    def _get_gov_flat():
-        d, e = api_get("government-activities")
-        if e or not d:
-            return None, e
-        return d.get("flat", []), e
+    st.title("EVD Preparedness — Coverage Analysis")
+    st.caption(
+        "Read-only analytics view. Data entry is done via the Flask portal. "
+        "Cache refreshes every 60 seconds."
+    )
 
-    st.title("Partner Contributions")
-    st.caption("Track partner pledges across all 7 preparedness pillars")
-
-    col_refresh, _ = st.columns([1, 6])
-    with col_refresh:
-        if st.button("🔄 Refresh", key="pc_refresh"):
+    col_r, _ = st.columns([1, 6])
+    with col_r:
+        if st.button("🔄 Refresh", key="cov_refresh"):
             st.cache_data.clear()
             st.rerun()
 
-    # ── Top summary metrics ───────────────────────────────────────────────────
-    matrix_data, err_m = _get_matrix()
-    if err_m:
-        st.warning(f"API offline — {err_m}")
-        st.info("Start Flask: `python app.py`")
+    summary, err = _evd_summary()
+    if err or not summary:
+        st.error(f"API offline: {err}")
+        st.info("Flask server must be running at: " + API_BASE)
         st.stop()
 
-    all_contribs, _ = api_get("partner-contributions")
-    all_contribs = all_contribs or []
+    # ── Top metrics row ───────────────────────────────────────────────────────
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total Activities",    summary.get("total_activities", 0))
+    m2.metric("Govt Budget (USD)",   f"${summary.get('total_cost_usd', 0):,.0f}")
+    m3.metric("Committed (USD)",     f"${summary.get('total_committed_usd', 0):,.0f}")
+    m4.metric("Funding Gap (USD)",   f"${summary.get('total_funding_gap', 0):,.0f}")
+    m5.metric("Overall Coverage",    f"{summary.get('coverage_pct', 0):.1f}%")
 
-    total_pledged    = sum(c.get("amount_pledged_usd", 0) for c in all_contribs)
-    total_disbursed  = sum(c.get("amount_disbursed_usd", 0) for c in all_contribs)
-    total_balance    = sum(c.get("balance_usd", 0) for c in all_contribs)
-    num_partners_con = len({c.get("partner_id") for c in all_contribs})
-
-    tm1, tm2, tm3, tm4 = st.columns(4)
-    tm1.metric("Partners Contributing", num_partners_con)
-    tm2.metric("Total Pledged (USD)",    f"${total_pledged:,.0f}")
-    tm3.metric("Total Disbursed (USD)",  f"${total_disbursed:,.0f}")
-    tm4.metric("Balance Remaining (USD)", f"${total_balance:,.0f}")
-
+    # Coverage progress bar
+    cov = summary.get("coverage_pct", 0)
+    bar_col = C_GREEN if cov >= 75 else (C_AMBER if cov >= 40 else C_RED)
+    st.markdown(
+        f"<div style='margin:8px 0 4px;'>"
+        f"<span style='font-weight:700;color:{bar_col};'>{cov:.1f}%</span> of the "
+        f"${summary.get('total_cost_usd', 0):,.0f} government plan is covered by partner commitments."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.progress(min(int(cov), 100))
     st.divider()
 
-    # ── View selector ─────────────────────────────────────────────────────────
-    pc_view = st.radio(
-        "View",
-        ["📊 Matrix View", "📋 By Activity", "🏢 By Partner", "⚠️ Gaps"],
-        horizontal=True,
-        key="pc_view_radio",
-        label_visibility="collapsed",
+    # ── Per-TA stacked bar + gauge ────────────────────────────────────────────
+    by_ta = summary.get("by_technical_area", [])
+    if by_ta:
+        ta_df = pd.DataFrame(by_ta)
+        ta_df["short"] = ta_df["technical_area_number"].apply(
+            lambda n: f"TA{n}"
+        )
+
+        col_chart, col_gauge = st.columns([2.5, 1])
+
+        with col_chart:
+            st.subheader("Committed vs Gap by Technical Area")
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(
+                name="Committed",
+                x=ta_df["short"],
+                y=ta_df["total_committed"],
+                marker_color=C_BLUE,
+                text=ta_df["coverage_pct"].apply(lambda v: f"{v:.0f}%"),
+                textposition="inside",
+                textfont=dict(color="white", size=11),
+            ))
+            fig_bar.add_trace(go.Bar(
+                name="Gap (unfunded)",
+                x=ta_df["short"],
+                y=ta_df["total_gap"],
+                marker_color="#F1948A",
+            ))
+            fig_bar.update_layout(
+                barmode="stack",
+                height=340,
+                margin=dict(t=20, b=0),
+                yaxis_title="USD",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        with col_gauge:
+            st.subheader("Overall Coverage")
+            fig_g = go.Figure(go.Indicator(
+                mode="gauge+number+delta",
+                value=round(cov, 1),
+                delta={"reference": 50, "increasing": {"color": C_GREEN}},
+                number={"suffix": "%"},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar":  {"color": C_BLUE},
+                    "steps": [
+                        {"range": [0,  40], "color": "#FADBD8"},
+                        {"range": [40, 75], "color": "#FDEBD0"},
+                        {"range": [75,100], "color": "#D5F5E3"},
+                    ],
+                },
+            ))
+            fig_g.update_layout(height=260, margin=dict(t=20, b=0, l=20, r=20))
+            st.plotly_chart(fig_g, use_container_width=True)
+
+    # ── Per-TA summary table ──────────────────────────────────────────────────
+    if by_ta:
+        st.subheader("Technical Area Summary")
+        hdr_cols = st.columns([0.5, 3.5, 1.2, 1.2, 1.2, 0.8, 0.7])
+        for hc, ht in zip(hdr_cols,
+                          ["TA", "Name", "Govt Cost", "Committed", "Gap", "Cov %", "Acts"]):
+            hc.markdown(f"**{ht}**")
+        st.divider()
+        for row in sorted(by_ta, key=lambda x: x["technical_area_number"]):
+            cov_r = row["coverage_pct"]
+            cov_c = C_GREEN if cov_r >= 75 else (C_AMBER if cov_r >= 40 else C_RED)
+            rc = st.columns([0.5, 3.5, 1.2, 1.2, 1.2, 0.8, 0.7])
+            rc[0].markdown(f"**TA{row['technical_area_number']}**")
+            rc[1].write(row["technical_area"])
+            rc[2].write(f"${row['total_cost']:,.0f}")
+            rc[3].markdown(
+                f"<span style='color:{C_GREEN};'>${row['total_committed']:,.0f}</span>",
+                unsafe_allow_html=True,
+            )
+            rc[4].markdown(
+                f"<span style='color:{C_RED};'>${row['total_gap']:,.0f}</span>",
+                unsafe_allow_html=True,
+            )
+            rc[5].markdown(
+                f"<span style='color:{cov_c};font-weight:700;'>{cov_r:.0f}%</span>",
+                unsafe_allow_html=True,
+            )
+            rc[6].write(row["activity_count"])
+
+    # ── Top funding gaps table ────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Top 20 Largest Funding Gaps")
+    gaps, _ = _evd_gaps()
+    if gaps:
+        g_df = pd.DataFrame(gaps[:20])[[
+            "activity_number", "activity_name", "technical_area",
+            "total_cost_usd", "total_committed", "funding_gap", "coverage_pct", "priority",
+        ]].copy()
+        g_df.columns = ["#", "Activity", "Technical Area",
+                        "Govt Cost", "Committed", "Gap (USD)", "Cov %", "Priority"]
+        for c in ["Govt Cost", "Committed", "Gap (USD)"]:
+            g_df[c] = g_df[c].apply(lambda v: f"${v:,.0f}")
+        g_df["Cov %"] = g_df["Cov %"].apply(lambda v: f"{v:.0f}%")
+        st.dataframe(g_df, hide_index=True, use_container_width=True,
+                     height=min(35 * len(g_df) + 38, 600))
+    else:
+        st.success("No funding gaps found — all activities are fully covered!")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE 8 — EVD FUNDING MATRIX  (read-only)
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "💰 EVD Funding Matrix":
+    C_BLUE  = "#0093D5"
+    C_DARK  = "#003865"
+    C_GREEN = "#1E8449"
+    C_AMBER = "#D97706"
+    C_RED   = "#C0392B"
+
+    @st.cache_data(ttl=60)
+    def _evd_matrix():
+        return api_get("evd/matrix")
+
+    st.title("EVD Funding Matrix")
+    st.caption(
+        "Partner commitments per government activity — read-only. "
+        "Enter contributions in the Flask portal (/evd/contributions)."
     )
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # VIEW 1 — MATRIX VIEW
-    # ══════════════════════════════════════════════════════════════════════════
-    if pc_view == "📊 Matrix View":
-        if not matrix_data:
-            st.info("No contribution data yet.")
-            st.stop()
+    col_r2, _ = st.columns([1, 6])
+    with col_r2:
+        if st.button("🔄 Refresh", key="mx_refresh2"):
+            st.cache_data.clear()
+            st.rerun()
 
-        activities   = matrix_data.get("activities", [])
-        partners     = matrix_data.get("partners", [])
-        matrix       = matrix_data.get("matrix", {})
-        row_totals   = matrix_data.get("row_totals", {})
-        col_totals   = matrix_data.get("col_totals", {})
-        grand_total  = matrix_data.get("grand_total", 0)
+    matrix_data, err = _evd_matrix()
+    if err or not matrix_data:
+        st.error(f"API offline: {err}")
+        st.info("Flask server must be running at: " + API_BASE)
+        st.stop()
 
-        # ── Filters ───────────────────────────────────────────────────────────
-        mf1, mf2, mf3 = st.columns(3)
-        with mf1:
-            PILLAR_FULL_OPTS = {
-                1: "Leadership and Coordination",
-                2: "Epidemiological Surveillance",
-                3: "Laboratory and Diagnostics",
-                4: "Case Management, IPC/WASH and SDB",
-                5: "Risk Communication and Community Engagement",
-                6: "Operational Support and Logistics",
-                7: "Research and Strategic Information",
-            }
-            f_pil = st.selectbox("Filter by Pillar",
-                                 ["All Pillars"] + list(PILLAR_FULL_OPTS.values()),
-                                 key="mx_fpil")
-        with mf2:
-            partner_names_all = [p["name"] for p in partners]
-            f_part = st.multiselect("Show Partners", partner_names_all,
-                                    default=partner_names_all, key="mx_fpart")
-        with mf3:
-            show_gaps_only = st.toggle("Show only activities with gaps", key="mx_gaps")
+    activities    = matrix_data.get("activities", [])
+    partner_names = matrix_data.get("partners", [])
+    matrix        = matrix_data.get("matrix", {})
+    row_totals    = matrix_data.get("row_totals", {})
+    col_totals    = matrix_data.get("col_totals", {})
+    grand_total   = matrix_data.get("grand_total", 0)
 
-        # Filter activities
-        vis_activities = activities
-        if f_pil != "All Pillars":
-            vis_activities = [a for a in activities if a.get("pillar") == f_pil]
-        if show_gaps_only:
-            vis_activities = [a for a in vis_activities if a.get("funding_gap", 0) > 0]
+    # ── Per-partner total cards ───────────────────────────────────────────────
+    if col_totals:
+        sorted_partners = sorted(col_totals.items(), key=lambda x: x[1], reverse=True)
+        cols_per_row = 6
+        chunks = [sorted_partners[i:i+cols_per_row]
+                  for i in range(0, len(sorted_partners), cols_per_row)]
+        for chunk in chunks:
+            pcols = st.columns(len(chunk))
+            for pc, (pname, total) in zip(pcols, chunk):
+                pc.metric(pname, f"${total:,.0f}" if total else "$0")
+        st.caption(f"**Grand total committed: ${grand_total:,.0f}**")
+        st.divider()
 
-        # Filter partners
-        vis_partners = [p for p in partners if p["name"] in f_part]
+    # ── Filters ───────────────────────────────────────────────────────────────
+    f1, f2, f3 = st.columns(3)
+    TA_OPTS = {
+        1: "TA1: Leadership and Coordination",
+        2: "TA2: Epidemiological Surveillance",
+        3: "TA3: Laboratory and Diagnostics",
+        4: "TA4: Case Management, IPC/WASH and SDB",
+        5: "TA5: Risk Communication and Community Engagement",
+        6: "TA6: Operational Support and Logistics",
+        7: "TA7: Research and Strategic Information",
+    }
+    with f1:
+        f_ta = st.selectbox("Filter by Technical Area",
+                            ["All TAs"] + list(TA_OPTS.values()), key="mx2_ta")
+    with f2:
+        f_psel = st.multiselect("Show Partners", partner_names,
+                                default=partner_names, key="mx2_psel")
+    with f3:
+        gaps_only = st.toggle("Only activities with gaps", key="mx2_gaps")
 
-        # ── Build matrix dataframe ─────────────────────────────────────────────
-        if not vis_activities:
-            st.info("No activities match the current filters.")
-        else:
-            rows = []
-            prev_pillar = None
-            for a in vis_activities:
-                if a.get("pillar") != prev_pillar:
-                    prev_pillar = a.get("pillar")
-                    rows.append({"__type": "header", "Activity": f"▌ {prev_pillar}"})
-                row = {
-                    "__type": "activity",
-                    "Activity": f"{a.get('activity_number','')}  {a['activity_name'][:65]}",
-                    "Govt Cost": a.get("total_cost_usd", 0),
-                }
-                a_id = str(a["id"])
-                for p in vis_partners:
-                    p_id = str(p["id"])
-                    cell = matrix.get(a_id, {}).get(p_id)
-                    row[p["name"]] = cell["amount_pledged"] if cell else 0
-                row["Total Support"] = float(row_totals.get(a_id, 0))
-                row["Funding Gap"]   = max(0, a.get("total_cost_usd", 0) - row["Total Support"])
-                rows.append(row)
+    vis_acts = activities
+    if f_ta != "All TAs":
+        ta_num = int(f_ta.split(":")[0].replace("TA", ""))
+        vis_acts = [a for a in activities if a.get("technical_area_number") == ta_num]
+    if gaps_only:
+        vis_acts = [a for a in vis_acts if a.get("funding_gap", 0) > 0]
+    vis_partners = [p for p in partner_names if p in f_psel]
 
-            df_matrix = pd.DataFrame(rows)
-            df_matrix = df_matrix.fillna(0)
+    if not vis_acts:
+        st.info("No activities match the current filters.")
+        st.stop()
 
-            # Format currency columns for display
-            money_cols = ["Govt Cost"] + [p["name"] for p in vis_partners] + ["Total Support", "Funding Gap"]
-            money_cols = [c for c in money_cols if c in df_matrix.columns]
+    # ── Build matrix dataframe ────────────────────────────────────────────────
+    rows = []
+    prev_ta = None
+    for a in vis_acts:
+        ta_name = a.get("technical_area", "")
+        if ta_name != prev_ta:
+            prev_ta = ta_name
+            rows.append({"__type": "header",
+                         "Activity": f"▌ TA{a.get('technical_area_number','')}: {ta_name}"})
+        row = {
+            "__type": "data",
+            "Activity": f"{a.get('activity_number', '')}  {a['activity_name'][:65]}",
+            "Govt Cost": a.get("total_cost_usd", 0),
+        }
+        a_id = str(a["id"])
+        for pname in vis_partners:
+            cell = matrix.get(a_id, {}).get(pname)
+            row[pname] = cell["amount_committed"] if cell else 0
+        row["Total Committed"] = float(row_totals.get(a_id, 0))
+        row["Gap (USD)"] = max(0, a.get("total_cost_usd", 0) - row["Total Committed"])
+        rows.append(row)
 
-            def fmt_cell(v):
-                if isinstance(v, (int, float)) and v > 0:
-                    return f"${v:,.0f}"
-                if isinstance(v, (int, float)) and v == 0:
-                    return "—"
-                return v
+    df = pd.DataFrame(rows).fillna(0)
+    money_cols = ["Govt Cost"] + vis_partners + ["Total Committed", "Gap (USD)"]
+    money_cols = [c for c in money_cols if c in df.columns]
 
-            display_df = df_matrix.copy()
-            for col in money_cols:
-                if col in display_df.columns:
-                    display_df[col] = display_df[col].apply(
-                        lambda v: fmt_cell(v) if display_df.loc[
-                            display_df[col] == v, "__type"
-                        ].values[0] != "header" if len(
-                            display_df[display_df[col] == v]
-                        ) > 0 else fmt_cell(v) else v
-                    )
+    display_df = df.copy()
+    for col in money_cols:
+        if col in df.columns:
+            display_df[col] = df.apply(
+                lambda r: ("" if r["__type"] == "header"
+                           else (f"${r[col]:,.0f}" if r[col] > 0 else "—")),
+                axis=1,
+            )
 
-            # Simpler formatting without the problematic lambda
-            for col in money_cols:
-                if col in df_matrix.columns:
-                    display_df[col] = df_matrix.apply(
-                        lambda row: ("" if row["__type"] == "header"
-                                     else (f"${row[col]:,.0f}" if row[col] > 0 else "—")),
-                        axis=1,
-                    )
+    def _style_gap(val):
+        if val in ("", "—"):
+            return ""
+        try:
+            v = float(str(val).replace("$", "").replace(",", ""))
+        except ValueError:
+            return ""
+        return (f"color:{C_GREEN};font-weight:600" if v == 0
+                else f"color:{C_RED};font-weight:600")
 
-            display_df = display_df.drop(columns=["__type"])
+    display_df = display_df.drop(columns=["__type"])
+    styled = display_df.style
+    if "Gap (USD)" in display_df.columns:
+        styled = styled.map(_style_gap, subset=["Gap (USD)"])
 
-            # Colour-code using pandas Styler
-            def style_gap(val):
-                if val == "" or val == "—":
-                    return ""
-                try:
-                    v = float(str(val).replace("$", "").replace(",", ""))
-                except ValueError:
-                    return ""
-                if v == 0:
-                    return f"color:{C_GREEN};font-weight:600"
-                return f"color:{C_RED};font-weight:600"
+    st.dataframe(styled, use_container_width=True, hide_index=True,
+                 height=min(35 * len(display_df) + 38, 750))
 
-            styled = display_df.style
-            if "Funding Gap" in display_df.columns:
-                styled = styled.applymap(style_gap, subset=["Funding Gap"])
+    # Grand total row
+    total_cost_vis = sum(a.get("total_cost_usd", 0) for a in vis_acts)
+    total_com_vis  = sum(float(row_totals.get(str(a["id"]), 0)) for a in vis_acts)
+    total_gap_vis  = total_cost_vis - total_com_vis
 
-            st.dataframe(styled, use_container_width=True, hide_index=True,
-                         height=min(35 * len(display_df) + 38, 700))
-
-            # Grand total row
-            gt_cols  = st.columns([3, 1] + [1] * len(vis_partners) + [1, 1])
-            gt_vals  = ["**GRAND TOTAL**", f"**${sum(a.get('total_cost_usd',0) for a in vis_activities):,.0f}**"]
-            for p in vis_partners:
-                gt_vals.append(f"**${float(col_totals.get(str(p['id']),0)):,.0f}**")
-            gt_vals += [f"**${grand_total:,.0f}**", ""]
-            for gc, gv in zip(gt_cols, gt_vals):
-                gc.markdown(gv)
-
-            # ── Export to Excel ───────────────────────────────────────────────
-            st.divider()
-            if st.button("📥 Export Matrix to Excel", key="mx_export"):
-                buf = io.BytesIO()
-                from openpyxl import Workbook
-                from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-                from openpyxl.utils import get_column_letter
-
-                wb = Workbook()
-                ws = wb.active
-                ws.title = "Partner Support Matrix"
-
-                header_fill  = PatternFill("solid", fgColor="003865")
-                pillar_fill  = PatternFill("solid", fgColor="003865")
-                support_fill = PatternFill("solid", fgColor="0093D5")
-                gap_red      = PatternFill("solid", fgColor="F1948A")
-                gap_green    = PatternFill("solid", fgColor="A9DFBF")
-                white_font   = Font(color="FFFFFF", bold=True)
-                bold_font    = Font(bold=True)
-
-                # Column headers
-                cols_hdr = (["Activity", "Govt Cost (USD)"]
-                            + [p["name"] for p in vis_partners]
-                            + ["Total Support (USD)", "Funding Gap (USD)"])
-                ws.append(cols_hdr)
-                for cell in ws[1]:
-                    cell.fill  = header_fill
-                    cell.font  = white_font
-                    cell.alignment = Alignment(horizontal="center", wrap_text=True)
-
-                prev_pillar_xl = None
-                for a in vis_activities:
-                    if a.get("pillar") != prev_pillar_xl:
-                        prev_pillar_xl = a.get("pillar")
-                        ws.append([f"▌ {prev_pillar_xl}"] + [""] * (len(cols_hdr) - 1))
-                        for cell in ws[ws.max_row]:
-                            cell.fill = pillar_fill
-                            cell.font = white_font
-
-                    a_id     = str(a["id"])
-                    row_data = [
-                        f"{a.get('activity_number','')} {a['activity_name']}",
-                        a.get("total_cost_usd", 0),
-                    ]
-                    for p in vis_partners:
-                        p_id = str(p["id"])
-                        cell_val = matrix.get(a_id, {}).get(p_id)
-                        row_data.append(cell_val["amount_pledged"] if cell_val else 0)
-                    t_support = float(row_totals.get(a_id, 0))
-                    gap_val   = max(0, a.get("total_cost_usd", 0) - t_support)
-                    row_data += [t_support, gap_val]
-                    ws.append(row_data)
-
-                    # Colour gap cell
-                    gap_cell = ws.cell(row=ws.max_row, column=len(cols_hdr))
-                    gap_cell.fill = gap_green if gap_val == 0 else gap_red
-
-                    # Colour support cell
-                    ws.cell(row=ws.max_row,
-                            column=len(cols_hdr) - 1).fill = support_fill
-
-                # Column widths
-                ws.column_dimensions["A"].width = 60
-                for i in range(2, len(cols_hdr) + 1):
-                    ws.column_dimensions[get_column_letter(i)].width = 18
-
-                wb.save(buf)
-                buf.seek(0)
-                st.download_button(
-                    "⬇ Download Partner Support Matrix",
-                    buf,
-                    file_name=f"Partner_Support_Matrix_{date.today()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-                st.success("Excel export ready.")
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # VIEW 2 — BY ACTIVITY
-    # ══════════════════════════════════════════════════════════════════════════
-    elif pc_view == "📋 By Activity":
-        flat_acts, err_f = _get_gov_flat()
-        all_partners, _  = _get_all_partners()
-
-        if err_f or not flat_acts:
-            st.warning("Could not load activities.")
-            st.stop()
-
-        if "pc_sel_act" not in st.session_state:
-            st.session_state.pc_sel_act = None
-
-        col_left, col_right = st.columns([1.2, 2.8])
-
-        with col_left:
-            st.subheader("Activities")
-            PILLAR_FULL_OPTS2 = {
-                1: "Leadership and Coordination",
-                2: "Epidemiological Surveillance",
-                3: "Laboratory and Diagnostics",
-                4: "Case Management, IPC/WASH and SDB",
-                5: "Risk Communication and Community Engagement",
-                6: "Operational Support and Logistics",
-                7: "Research and Strategic Information",
-            }
-            prev_pil = None
-            for a in sorted(flat_acts, key=lambda x: (x.get("pillar_number", 99),
-                                                        x.get("activity_number", ""))):
-                if a.get("pillar") != prev_pil:
-                    prev_pil = a.get("pillar")
-                    st.markdown(
-                        f"<div style='background:{C_DARK};color:white;"
-                        f"padding:4px 8px;border-radius:4px;margin:6px 0 2px;font-size:.8rem;"
-                        f"font-weight:700;'>{prev_pil}</div>",
-                        unsafe_allow_html=True,
-                    )
-                label = f"{a.get('activity_number','')} {a['activity_name'][:50]}..."
-                if st.button(label, key=f"act_sel_{a['id']}", use_container_width=True):
-                    st.session_state.pc_sel_act = a["id"]
-
-        with col_right:
-            if st.session_state.pc_sel_act:
-                act_id = st.session_state.pc_sel_act
-                act_detail, _ = api_get(f"partner-contributions/by-activity/{act_id}")
-                if act_detail:
-                    activity = act_detail.get("activity", {})
-                    contribs = act_detail.get("contributions", [])
-
-                    st.subheader(activity.get("activity_name", ""))
-                    d1, d2, d3 = st.columns(3)
-                    d1.metric("Total Cost", f"${activity.get('total_cost_usd', 0):,.0f}")
-                    d2.metric("Partner Support",
-                              f"${activity.get('total_partner_support', 0):,.0f}")
-                    d3.metric("Funding Gap",
-                              f"${activity.get('funding_gap', 0):,.0f}")
-
-                    st.caption(
-                        f"Pillar: {activity.get('pillar')}  |  "
-                        f"Status: {activity.get('status')}  |  "
-                        f"Priority: {activity.get('priority')}"
-                    )
-
-                    cov_pct = activity.get("coverage_pct", 0)
-                    cov_color = C_GREEN if cov_pct >= 75 else (C_AMBER if cov_pct >= 50 else C_RED)
-                    st.markdown(
-                        f"<span style='color:{cov_color};font-weight:700;'>"
-                        f"{cov_pct:.0f}%</span> funded",
-                        unsafe_allow_html=True,
-                    )
-                    st.progress(min(int(cov_pct), 100))
-
-                    if contribs:
-                        st.markdown("**Partner Contributions:**")
-                        contrib_df = pd.DataFrame(contribs)[[
-                            "partner_name", "amount_pledged_usd",
-                            "amount_available_usd", "amount_to_mobilize_usd",
-                            "amount_disbursed_usd", "balance_usd",
-                            "modality", "status",
-                        ]]
-                        contrib_df.columns = [
-                            "Partner", "Pledged (USD)", "Available (USD)",
-                            "To Mobilize (USD)", "Disbursed (USD)",
-                            "Balance (USD)", "Modality", "Status",
-                        ]
-                        st.dataframe(contrib_df, hide_index=True,
-                                     use_container_width=True)
-                    else:
-                        st.info("No partner contributions recorded yet for this activity.")
-
-                    # Add contribution form
-                    st.divider()
-                    with st.expander("➕ Add Partner Contribution", expanded=False):
-                        partner_map = {p["name"]: p["id"]
-                                       for p in (all_partners or [])}
-                        with st.form(f"add_contrib_{act_id}"):
-                            ac1, ac2 = st.columns(2)
-                            ac_partner = ac1.selectbox("Partner *",
-                                                       list(partner_map.keys()),
-                                                       key=f"acp_{act_id}")
-                            ac_modality = ac2.selectbox(
-                                "Modality",
-                                ["Direct Implementation", "Transfer to Government",
-                                 "In-kind", "Co-implementation"],
-                                key=f"acm_{act_id}",
-                            )
-                            ac3, ac4 = st.columns(2)
-                            ac_pledged  = ac3.number_input("Amount Pledged (USD)",
-                                                           min_value=0.0, step=1000.0,
-                                                           key=f"acpl_{act_id}")
-                            ac_avail    = ac4.number_input("Amount Available (USD)",
-                                                           min_value=0.0, step=1000.0,
-                                                           key=f"acav_{act_id}")
-                            ac5, ac6 = st.columns(2)
-                            ac_mob  = ac5.number_input("To Mobilize (USD)",
-                                                       min_value=0.0, step=1000.0,
-                                                       key=f"acmob_{act_id}")
-                            ac_disb = ac6.number_input("Disbursed (USD)",
-                                                        min_value=0.0, step=1000.0,
-                                                        key=f"acd_{act_id}")
-                            ac_status = st.selectbox(
-                                "Status",
-                                ["Pledged", "Confirmed", "Disbursed", "Cancelled"],
-                                key=f"acs_{act_id}",
-                            )
-                            ac_notes = st.text_area("Notes", height=60,
-                                                    key=f"acn_{act_id}")
-                            if st.form_submit_button("💾 Save Contribution",
-                                                     type="primary"):
-                                resp, code = api_post("partner-contributions", {
-                                    "government_activity_id": act_id,
-                                    "partner_id": partner_map[ac_partner],
-                                    "amount_pledged_usd":     ac_pledged,
-                                    "amount_available_usd":   ac_avail,
-                                    "amount_to_mobilize_usd": ac_mob,
-                                    "amount_disbursed_usd":   ac_disb,
-                                    "modality": ac_modality,
-                                    "status":   ac_status,
-                                    "notes":    ac_notes,
-                                })
-                                if code in (200, 201):
-                                    st.success("Contribution saved!")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                else:
-                                    st.error(resp.get("message", "Error"))
-            else:
-                st.info("← Select an activity from the left to see details.")
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # VIEW 3 — BY PARTNER
-    # ══════════════════════════════════════════════════════════════════════════
-    elif pc_view == "🏢 By Partner":
-        all_partners, _ = _get_all_partners()
-
-        # Only show partners that have contributions
-        contrib_partner_ids = {c.get("partner_id") for c in all_contribs}
-        active_partners = [p for p in (all_partners or [])
-                           if p["id"] in contrib_partner_ids]
-
-        if not active_partners:
-            st.info("No partner contributions recorded yet.")
-            st.stop()
-
-        col_left2, col_right2 = st.columns([1, 3])
-
-        with col_left2:
-            st.subheader("Partners")
-            for p in sorted(active_partners, key=lambda x: x["name"]):
-                p_total = sum(c.get("amount_pledged_usd", 0)
-                              for c in all_contribs if c.get("partner_id") == p["id"])
-                p_acts  = sum(1 for c in all_contribs if c.get("partner_id") == p["id"])
-                if st.button(
-                    f"{p['name']}\n${p_total:,.0f} | {p_acts} activities",
-                    key=f"psel_{p['id']}", use_container_width=True,
-                ):
-                    st.session_state["pc_sel_partner"] = p["id"]
-
-        with col_right2:
-            sel_pid = st.session_state.get("pc_sel_partner")
-            if sel_pid:
-                pdet, _ = api_get(f"partner-contributions/by-partner/{sel_pid}")
-                if pdet:
-                    p_info = pdet.get("partner", {})
-                    st.subheader(p_info.get("name", ""))
-                    st.caption(f"Type: {p_info.get('type', '')} | "
-                               f"Activities supported: {pdet.get('activity_count', 0)}")
-
-                    pm1, pm2, pm3, pm4 = st.columns(4)
-                    pm1.metric("Activities",
-                               pdet.get("activity_count", 0))
-                    pm2.metric("Total Pledged",
-                               f"${pdet.get('total_pledged', 0):,.0f}")
-                    pm3.metric("Total Disbursed",
-                               f"${pdet.get('total_disbursed', 0):,.0f}")
-                    pm4.metric("Balance",
-                               f"${pdet.get('total_balance', 0):,.0f}")
-
-                    # Donut chart by pillar
-                    by_pillar = pdet.get("by_pillar", {})
-                    if by_pillar:
-                        fig_donut = px.pie(
-                            names=list(by_pillar.keys()),
-                            values=list(by_pillar.values()),
-                            hole=0.45,
-                            title="Pledges by Pillar",
-                            color_discrete_sequence=px.colors.sequential.Blues_r,
-                        )
-                        fig_donut.update_layout(height=320,
-                                                margin=dict(t=40, b=0))
-                        st.plotly_chart(fig_donut, use_container_width=True)
-
-                    # Contributions table
-                    contribs_p = pdet.get("contributions", [])
-                    if contribs_p:
-                        p_df = pd.DataFrame(contribs_p)[[
-                            "pillar", "activity_name", "amount_pledged_usd",
-                            "amount_available_usd", "amount_disbursed_usd",
-                            "balance_usd", "modality",
-                        ]]
-                        p_df.columns = [
-                            "Pillar", "Activity", "Pledged (USD)", "Available (USD)",
-                            "Disbursed (USD)", "Balance (USD)", "Modality",
-                        ]
-                        st.dataframe(p_df, hide_index=True, use_container_width=True)
-            else:
-                st.info("← Select a partner from the left.")
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # VIEW 4 — GAPS ANALYSIS
-    # ══════════════════════════════════════════════════════════════════════════
-    elif pc_view == "⚠️ Gaps":
-        gaps, err_g = _get_gaps()
-        if err_g or not gaps:
-            st.info("No gap data available. Run seed_data.py to populate activities.")
-            st.stop()
-
-        st.subheader("Critical Gaps Leaderboard")
-        st.caption("Activities sorted by funding gap (largest first). "
-                   "Red = critical (<25% funded), Amber = at risk, Green = adequate (≥75%).")
-
-        def row_color(cov):
-            if cov < 25:
-                return "background-color:#FADBD8"
-            if cov < 75:
-                return "background-color:#FDEBD0"
-            return "background-color:#D5F5E3"
-
-        gaps_df = pd.DataFrame(gaps)[[
-            "pillar", "activity_name", "total_cost",
-            "total_support", "gap", "coverage_pct",
-            "status", "priority",
-        ]]
-        gaps_df.columns = [
-            "Pillar", "Activity", "Govt Cost (USD)",
-            "Partner Support (USD)", "Gap (USD)", "Coverage %",
-            "Status", "Priority",
-        ]
-        for col in ["Govt Cost (USD)", "Partner Support (USD)", "Gap (USD)"]:
-            gaps_df[col] = gaps_df[col].apply(lambda v: f"${v:,.0f}")
-
-        styled_gaps = gaps_df.style.apply(
-            lambda row: [row_color(row["Coverage %"])] * len(row), axis=1
+    gt_parts = [f"**GRAND TOTAL** ({len(vis_acts)} activities)", f"**${total_cost_vis:,.0f}**"]
+    for pname in vis_partners:
+        pt = sum(
+            matrix.get(str(a["id"]), {}).get(pname, {}).get("amount_committed", 0)
+            for a in vis_acts
         )
-        st.dataframe(styled_gaps, use_container_width=True, hide_index=True,
-                     height=min(35 * len(gaps_df) + 38, 600))
+        gt_parts.append(f"**${pt:,.0f}**" if pt else "**—**")
+    gt_parts += [f"**${total_com_vis:,.0f}**", f"**${total_gap_vis:,.0f}**"]
 
-        # Gap by pillar bar chart
-        st.divider()
-        st.subheader("Funding Gap by Pillar")
-        pillar_summary, _ = api_get("government-activities/summary")
-        if pillar_summary:
-            bp = pillar_summary.get("by_pillar", [])
-            if bp:
-                bp_df = pd.DataFrame(bp)
-                fig_bars = go.Figure()
-                fig_bars.add_trace(go.Bar(
-                    name="Funded",
-                    y=[f"Pillar {r['pillar_number']}" for _, r in bp_df.iterrows()],
-                    x=bp_df["total_support"],
-                    orientation="h",
-                    marker_color=C_GREEN,
-                ))
-                fig_bars.add_trace(go.Bar(
-                    name="Gap",
-                    y=[f"Pillar {r['pillar_number']}" for _, r in bp_df.iterrows()],
-                    x=bp_df["gap"],
-                    orientation="h",
-                    marker_color=C_RED,
-                ))
-                fig_bars.update_layout(
-                    barmode="stack",
-                    height=320,
-                    margin=dict(t=10, b=0),
-                    xaxis_title="USD",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                )
-                st.plotly_chart(fig_bars, use_container_width=True)
+    gt_cols = st.columns([3.5, 1] + [1] * len(vis_partners) + [1.2, 1])
+    for gc, gv in zip(gt_cols, gt_parts):
+        gc.markdown(gv)
 
-        # Unfunded activities (zero partner contributions)
-        st.divider()
-        st.subheader("Unfunded Activities (Zero Partner Contributions)")
-        unfunded = [g for g in gaps if g["total_support"] == 0 and g["total_cost"] > 0]
-        if unfunded:
-            uf_cols = st.columns(3)
-            for i, act in enumerate(unfunded):
-                with uf_cols[i % 3]:
-                    pct_color = C_RED if act["priority"] == "High" else C_AMBER
-                    st.markdown(
-                        f"""
-                        <div style='border:1px solid {pct_color};border-radius:6px;
-                             padding:10px;margin-bottom:10px;'>
-                          <div style='font-weight:700;font-size:.85rem;margin-bottom:4px;
-                               color:{C_DARK};'>{act['activity_name'][:70]}</div>
-                          <div style='font-size:.75rem;color:#555;'>
-                            {act['pillar'][:30]}</div>
-                          <div style='font-weight:600;color:{pct_color};margin-top:6px;'>
-                            ${act['total_cost']:,.0f}  ·  Priority: {act['priority']}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    if st.button("🔍 Find Partners", key=f"fp_{act['id']}"):
-                        st.session_state.pc_sel_act = act["id"]
-                        st.session_state["pc_view_radio"] = "📋 By Activity"
-                        st.rerun()
-        else:
-            st.success("All activities with a budget have at least one partner contribution.")
+    # ── Excel export ──────────────────────────────────────────────────────────
+    st.divider()
+    if st.button("📥 Export to Excel", key="mx2_export"):
+        buf = io.BytesIO()
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.utils import get_column_letter
+
+        wb  = Workbook()
+        ws  = wb.active
+        ws.title = "Partner Support Matrix"
+
+        hdr_fill  = PatternFill("solid", fgColor="003865")
+        ta_fill   = PatternFill("solid", fgColor="1A5276")
+        supp_fill = PatternFill("solid", fgColor="0093D5")
+        gap_red   = PatternFill("solid", fgColor="F1948A")
+        gap_grn   = PatternFill("solid", fgColor="A9DFBF")
+        wfont     = Font(color="FFFFFF", bold=True)
+
+        hdr = (["Activity", "Govt Cost (USD)"]
+               + vis_partners
+               + ["Total Committed (USD)", "Funding Gap (USD)"])
+        ws.append(hdr)
+        for cell in ws[1]:
+            cell.fill = hdr_fill
+            cell.font = wfont
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+        prev_xl = None
+        for a in vis_acts:
+            ta_xl = a.get("technical_area", "")
+            if ta_xl != prev_xl:
+                prev_xl = ta_xl
+                ws.append([f"▌ TA{a['technical_area_number']}: {ta_xl}"]
+                          + [""] * (len(hdr) - 1))
+                for c in ws[ws.max_row]:
+                    c.fill = ta_fill
+                    c.font = wfont
+
+            a_id     = str(a["id"])
+            row_data = [f"{a.get('activity_number','')} {a['activity_name']}",
+                        a.get("total_cost_usd", 0)]
+            for pname in vis_partners:
+                cell = matrix.get(a_id, {}).get(pname)
+                row_data.append(cell["amount_committed"] if cell else 0)
+            t_com = float(row_totals.get(a_id, 0))
+            gap_v = max(0, a.get("total_cost_usd", 0) - t_com)
+            row_data += [t_com, gap_v]
+            ws.append(row_data)
+
+            last = ws.max_row
+            ws.cell(last, len(hdr)).fill     = gap_grn if gap_v == 0 else gap_red
+            ws.cell(last, len(hdr) - 1).fill = supp_fill
+
+        ws.column_dimensions["A"].width = 65
+        for i in range(2, len(hdr) + 1):
+            ws.column_dimensions[get_column_letter(i)].width = 18
+
+        wb.save(buf)
+        buf.seek(0)
+        st.download_button(
+            "⬇ Download Partner Support Matrix",
+            buf,
+            file_name=f"EVD_Funding_Matrix_{date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        st.success("Excel export ready.")
+

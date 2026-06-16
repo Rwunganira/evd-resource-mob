@@ -62,6 +62,15 @@
       </a>
       {% endif %}
       <hr style="border-color:#1a5276;margin:10px 20px;">
+      <a class="nav-link {% if active_page == 'evd_activities' %}active{% endif %}"
+         href="{{ url_for('evd_view.activities_page') }}">
+        <i class="bi bi-list-check me-2"></i>EVD Activities
+      </a>
+      <a class="nav-link {% if active_page == 'evd_contributions' %}active{% endif %}"
+         href="{{ url_for('evd_view.contributions_page') }}">
+        <i class="bi bi-cash-stack me-2"></i>Partner Contributions
+      </a>
+      <hr style="border-color:#1a5276;margin:10px 20px;">
       <a class="nav-link" href="{{ streamlit_url }}" target="_blank">
         <i class="bi bi-bar-chart me-2"></i>Visualizations ↗
       </a>

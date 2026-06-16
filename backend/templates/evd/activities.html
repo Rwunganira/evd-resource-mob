@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}EVD Activity Register{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>EVD Activity Register</h2>
+  <p class="text-muted mb-0">Government-planned preparedness activities across 7 Technical Areas</p>
+</div>
+
+<!-- Summary metrics -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="text-muted small text-uppercase fw-semibold">Govt Budget (USD)</div>
+        <div class="fs-4 fw-bold text-primary">${{ "{:,.0f}".format(total_cost) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="text-muted small text-uppercase fw-semibold">Partner Committed (USD)</div>
+        <div class="fs-4 fw-bold text-success">${{ "{:,.0f}".format(total_committed) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="text-muted small text-uppercase fw-semibold">Funding Gap (USD)</div>
+        <div class="fs-4 fw-bold text-danger">${{ "{:,.0f}".format(total_gap) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="text-muted small text-uppercase fw-semibold">Overall Coverage</div>
+        <div class="fs-4 fw-bold {% if coverage >= 75 %}text-success{% elif coverage >= 40 %}text-warning{% else %}text-danger{% endif %}">
+          {{ coverage }}%
+        </div>
+        <div class="progress mt-1" style="height:6px;">
+          <div class="progress-bar {% if coverage >= 75 %}bg-success{% elif coverage >= 40 %}bg-warning{% else %}bg-danger{% endif %}"
+               style="width:{{ [coverage, 100]|min }}%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters & Add button -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="d-flex gap-2">
+    <select id="filterTA" class="form-select form-select-sm" style="width:260px;">
+      <option value="">All Technical Areas</option>
+      {% for n, name in technical_areas.items() %}
+      <option value="{{ n }}">TA{{ n }}: {{ name }}</option>
+      {% endfor %}
+    </select>
+    <select id="filterStatus" class="form-select form-select-sm" style="width:160px;">
+      <option value="">All Status</option>
+      <option>Planned</option><option>Active</option>
+      <option>Completed</option><option>Suspended</option>
+    </select>
+    <input id="filterSearch" type="text" class="form-control form-control-sm"
+           placeholder="Search activities…" style="width:220px;">
+  </div>
+  {% if can_edit %}
+  <button class="btn btn-who btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="bi bi-plus-lg me-1"></i>Add Activity
+  </button>
+  {% endif %}
+</div>
+
+<!-- Activity table by Technical Area -->
+{% for ta in grouped %}
+<div class="ta-section" data-ta="{{ ta.number }}">
+  <div class="d-flex align-items-center mb-1 mt-3">
+    <span class="badge me-2" style="background:var(--who-dark);font-size:.8rem;">TA{{ ta.number }}</span>
+    <strong>{{ ta.name }}</strong>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:70px">#</th>
+          <th>Activity</th>
+          <th style="width:100px">Sub-section</th>
+          <th class="text-end" style="width:120px">Govt Cost</th>
+          <th class="text-end" style="width:120px">Committed</th>
+          <th class="text-end" style="width:110px">Gap</th>
+          <th class="text-center" style="width:70px">Cov %</th>
+          <th class="text-center" style="width:90px">Status</th>
+          <th class="text-center" style="width:80px">Priority</th>
+          {% if can_edit %}<th style="width:70px"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in ta.activities %}
+        {% set cov = a.coverage_pct %}
+        <tr class="activity-row" data-ta="{{ a.technical_area_number }}" data-status="{{ a.status }}"
+            data-name="{{ a.activity_name | lower }}">
+          <td class="text-muted small">{{ a.activity_number }}</td>
+          <td>{{ a.activity_name }}</td>
+          <td class="small text-muted">{{ a.sub_section }}</td>
+          <td class="text-end">${{ "{:,.0f}".format(a.total_cost_usd or 0) }}</td>
+          <td class="text-end text-success">${{ "{:,.0f}".format(a.total_committed) }}</td>
+          <td class="text-end {% if a.funding_gap == 0 %}text-success{% elif cov >= 50 %}text-warning{% else %}text-danger{% endif %}">
+            ${{ "{:,.0f}".format(a.funding_gap) }}
+          </td>
+          <td class="text-center">
+            <span class="badge {% if cov >= 75 %}bg-success{% elif cov >= 40 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ "%.0f"|format(cov) }}%
+            </span>
+          </td>
+          <td class="text-center">
+            <span class="badge {% if a.status == 'Active' %}bg-success{% elif a.status == 'Completed' %}bg-secondary{% elif a.status == 'Suspended' %}bg-danger{% else %}bg-light text-dark border{% endif %}">
+              {{ a.status }}
+            </span>
+          </td>
+          <td class="text-center">
+            <span class="badge {% if a.priority == 'High' %}bg-danger{% elif a.priority == 'Medium' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+              {{ a.priority }}
+            </span>
+          </td>
+          {% if can_edit %}
+          <td class="text-center">
+            <button class="btn btn-link btn-sm p-0 edit-btn"
+                    data-id="{{ a.id }}"
+                    data-number="{{ a.activity_number }}"
+                    data-ta="{{ a.technical_area_number }}"
+                    data-sub="{{ a.sub_section or '' }}"
+                    data-name="{{ a.activity_name }}"
+                    data-cost="{{ a.total_cost_usd or 0 }}"
+                    data-status="{{ a.status }}"
+                    data-priority="{{ a.priority }}"
+                    data-notes="{{ a.notes or '' }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+{% if can_edit %}
+<!-- Add Activity Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <form id="addForm" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add New Activity</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Technical Area *</label>
+            <select name="technical_area_number" class="form-select" required>
+              {% for n, name in technical_areas.items() %}
+              <option value="{{ n }}">TA{{ n }}: {{ name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Sub-section</label>
+            <input type="text" name="sub_section" class="form-control"
+                   placeholder="e.g. A. Leadership and Coordination">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Activity Number</label>
+            <input type="text" name="activity_number" class="form-control" placeholder="e.g. 74.0">
+          </div>
+          <div class="col-md-9">
+            <label class="form-label">Activity Name *</label>
+            <input type="text" name="activity_name" class="form-control" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Total Cost (USD)</label>
+            <input type="number" name="total_cost_usd" class="form-control" min="0" value="0">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Status</label>
+            <select name="status" class="form-select">
+              <option>Planned</option><option>Active</option>
+              <option>Completed</option><option>Suspended</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Priority</label>
+            <select name="priority" class="form-select">
+              <option>High</option><option selected>Medium</option><option>Low</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <textarea name="notes" class="form-control" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-who">Save Activity</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Activity Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <form id="editForm" class="modal-content">
+      <input type="hidden" name="_id" id="edit_id">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Activity <span id="edit_num" class="text-muted"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Technical Area *</label>
+            <select name="technical_area_number" id="edit_ta" class="form-select" required>
+              {% for n, name in technical_areas.items() %}
+              <option value="{{ n }}">TA{{ n }}: {{ name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Sub-section</label>
+            <input type="text" name="sub_section" id="edit_sub" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Activity Number</label>
+            <input type="text" name="activity_number" id="edit_number" class="form-control">
+          </div>
+          <div class="col-md-9">
+            <label class="form-label">Activity Name *</label>
+            <input type="text" name="activity_name" id="edit_name" class="form-control" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Total Cost (USD)</label>
+            <input type="number" name="total_cost_usd" id="edit_cost" class="form-control" min="0">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Status</label>
+            <select name="status" id="edit_status" class="form-select">
+              <option>Planned</option><option>Active</option>
+              <option>Completed</option><option>Suspended</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Priority</label>
+            <select name="priority" id="edit_priority" class="form-select">
+              <option>High</option><option>Medium</option><option>Low</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <textarea name="notes" id="edit_notes" class="form-control" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-danger btn-sm" id="deleteBtn">
+          <i class="bi bi-trash me-1"></i>Delete
+        </button>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-who">Save Changes</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Client-side filtering ────────────────────────────────────────────────────
+function applyFilters() {
+  const ta     = document.getElementById('filterTA').value;
+  const status = document.getElementById('filterStatus').value;
+  const search = document.getElementById('filterSearch').value.toLowerCase();
+
+  document.querySelectorAll('.activity-row').forEach(row => {
+    const matchTA     = !ta     || row.dataset.ta     === ta;
+    const matchStatus = !status || row.dataset.status === status;
+    const matchSearch = !search || row.dataset.name.includes(search);
+    row.style.display = (matchTA && matchStatus && matchSearch) ? '' : 'none';
+  });
+
+  // Hide section headers that have no visible rows
+  document.querySelectorAll('.ta-section').forEach(section => {
+    const visible = [...section.querySelectorAll('.activity-row')]
+                     .some(r => r.style.display !== 'none');
+    section.style.display = visible ? '' : 'none';
+  });
+}
+
+['filterTA','filterStatus'].forEach(id =>
+  document.getElementById(id)?.addEventListener('change', applyFilters)
+);
+document.getElementById('filterSearch')?.addEventListener('input', applyFilters);
+
+{% if can_edit %}
+// ── Add activity ─────────────────────────────────────────────────────────────
+document.getElementById('addForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd   = new FormData(this);
+  const body = Object.fromEntries(fd.entries());
+  body.total_cost_usd = parseFloat(body.total_cost_usd) || 0;
+  body.technical_area_number = parseInt(body.technical_area_number);
+
+  const r = await fetch('/api/evd/activities', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  if (j.status === 'success') location.reload();
+  else alert('Error: ' + j.message);
+});
+
+// ── Edit activity ─────────────────────────────────────────────────────────────
+const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+
+document.querySelectorAll('.edit-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.getElementById('edit_id').value       = this.dataset.id;
+    document.getElementById('edit_num').textContent = '#' + this.dataset.number;
+    document.getElementById('edit_ta').value       = this.dataset.ta;
+    document.getElementById('edit_sub').value      = this.dataset.sub;
+    document.getElementById('edit_number').value   = this.dataset.number;
+    document.getElementById('edit_name').value     = this.dataset.name;
+    document.getElementById('edit_cost').value     = this.dataset.cost;
+    document.getElementById('edit_status').value   = this.dataset.status;
+    document.getElementById('edit_priority').value = this.dataset.priority;
+    document.getElementById('edit_notes').value    = this.dataset.notes;
+    editModal.show();
+  });
+});
+
+document.getElementById('editForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const id   = document.getElementById('edit_id').value;
+  const fd   = new FormData(this);
+  const body = Object.fromEntries(fd.entries());
+  delete body._id;
+  body.total_cost_usd = parseFloat(body.total_cost_usd) || 0;
+  body.technical_area_number = parseInt(body.technical_area_number);
+
+  const taMap = { {% for n, name in technical_areas.items() %}"{{ n }}": "{{ name }}", {% endfor %} };
+  body.technical_area = taMap[body.technical_area_number];
+
+  const r = await fetch('/api/evd/activities/' + id, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  if (j.status === 'success') location.reload();
+  else alert('Error: ' + j.message);
+});
+
+document.getElementById('deleteBtn').addEventListener('click', async function() {
+  const id = document.getElementById('edit_id').value;
+  if (!confirm('Delete this activity and all its contributions?')) return;
+  const r = await fetch('/api/evd/activities/' + id, { method: 'DELETE' });
+  const j = await r.json();
+  if (j.status === 'success') location.reload();
+  else alert('Error: ' + j.message);
+});
+{% endif %}
+</script>
+{% endblock %}
