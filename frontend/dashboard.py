@@ -11,7 +11,8 @@ import streamlit as st
 from datetime import date, datetime
 
 import os
-API_BASE = os.getenv("FLASK_URL", "https://evd-resource-mob-50c0bbf1db4d.herokuapp.com").rstrip("/") + "/api"
+_flask_url = os.getenv("FLASK_URL", "http://localhost:5000").rstrip("/")
+API_BASE = f"{_flask_url}/api"
 
 WHO_BLUE = "#0093D5"
 WHO_DARK = "#003D6B"
@@ -64,36 +65,6 @@ def api_get(endpoint: str, params: dict | None = None):
         return None, "API unavailable — Flask server is not running."
     except Exception as exc:
         return None, str(exc)
-
-
-def api_post(endpoint: str, payload: dict):
-    try:
-        r = requests.post(f"{API_BASE}/{endpoint.lstrip('/')}", json=payload, timeout=5)
-        return r.json(), r.status_code
-    except requests.exceptions.ConnectionError:
-        return {"status": "error", "message": "API unavailable"}, 503
-    except Exception as exc:
-        return {"status": "error", "message": str(exc)}, 500
-
-
-def api_put(endpoint: str, payload: dict):
-    try:
-        r = requests.put(f"{API_BASE}/{endpoint.lstrip('/')}", json=payload, timeout=5)
-        return r.json(), r.status_code
-    except requests.exceptions.ConnectionError:
-        return {"status": "error", "message": "API unavailable"}, 503
-    except Exception as exc:
-        return {"status": "error", "message": str(exc)}, 500
-
-
-def api_delete(endpoint: str):
-    try:
-        r = requests.delete(f"{API_BASE}/{endpoint.lstrip('/')}", timeout=5)
-        return r.json(), r.status_code
-    except requests.exceptions.ConnectionError:
-        return {"status": "error", "message": "API unavailable"}, 503
-    except Exception as exc:
-        return {"status": "error", "message": str(exc)}, 500
 
 
 def api_offline_msg(msg: str):
@@ -323,35 +294,6 @@ elif page == "Partner Tracker":
         fig_bar.update_layout(height=300, margin=dict(t=10, b=0))
         st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Add new partner
-    st.divider()
-    st.subheader("Add New Partner")
-    with st.form("add_partner_form"):
-        fc1, fc2 = st.columns(2)
-        p_name = fc1.text_input("Partner Name *")
-        p_type = fc2.selectbox("Type *", ["Government", "NGO", "Private", "Academic", "Military", "Community"])
-        fd1, fd2 = st.columns(2)
-        p_country = fd1.text_input("Country *")
-        p_status = fd2.selectbox("Status", ["Pipeline", "Negotiating", "Active"])
-        fe1, fe2 = st.columns(2)
-        p_contact = fe1.text_input("Contact Person")
-        p_email = fe2.text_input("Contact Email")
-        submitted = st.form_submit_button("Add Partner", type="primary")
-        if submitted:
-            if not p_name or not p_country:
-                st.error("Name and Country are required.")
-            else:
-                resp, code = api_post("partners", {
-                    "name": p_name, "partner_type": p_type, "country": p_country,
-                    "status": p_status, "contact_person": p_contact, "contact_email": p_email,
-                })
-                if code in (200, 201):
-                    st.success(f"Partner '{p_name}' added successfully!")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(resp.get("message", "Error adding partner"))
-
     # Partner detail
     st.divider()
     st.subheader("Partner Detail")
@@ -466,44 +408,6 @@ elif page == "Resource Mobilization":
         use_container_width=True, hide_index=True,
     )
 
-    # Add resource form
-    st.divider()
-    st.subheader("Add Resource Commitment")
-    partners_data, _ = api_get("partners", {"status": "Active"})
-    if partners_data:
-        partner_map = {p["name"]: p["id"] for p in partners_data}
-        with st.form("add_resource_form"):
-            g1, g2 = st.columns(2)
-            r_partner = g1.selectbox("Partner *", list(partner_map.keys()))
-            r_type = g2.selectbox("Resource Type *", ["Funding", "PPE", "Personnel", "Vaccines", "Logistics", "Technical"])
-            g3, g4, g5 = st.columns(3)
-            r_amount = g3.number_input("Amount", min_value=0.0, step=1000.0)
-            r_currency = g4.selectbox("Currency", ["USD", "EUR", "GBP", "In-kind"])
-            r_status = g5.selectbox("Status", ["Pipeline", "Committed", "Deployed", "Under Review"])
-            r_desc = st.text_area("Description")
-            g6, g7, g8 = st.columns(3)
-            r_commit = g6.date_input("Commitment Date", value=date.today())
-            r_deploy = g7.date_input("Deployment Date", value=None)
-            r_freq = g8.selectbox("Reporting Frequency", ["Monthly", "Weekly", "Biweekly", "Quarterly", "Daily"])
-            if st.form_submit_button("Add Resource", type="primary"):
-                payload = {
-                    "partner_id": partner_map[r_partner],
-                    "resource_type": r_type,
-                    "amount": r_amount,
-                    "currency": r_currency,
-                    "status": r_status,
-                    "description": r_desc,
-                    "commitment_date": r_commit.isoformat(),
-                    "deployment_date": r_deploy.isoformat() if r_deploy else None,
-                    "reporting_frequency": r_freq,
-                }
-                resp, code = api_post("resources", payload)
-                if code in (200, 201):
-                    st.success("Resource added!")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(resp.get("message", "Error"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -654,43 +558,6 @@ elif page == "Situation Reports":
         if latest.get("notes"):
             st.info(latest["notes"])
 
-    # New sitrep form
-    st.divider()
-    st.subheader("Submit New Situation Report")
-    with st.form("new_sitrep_form"):
-        n1, n2 = st.columns(2)
-        s_date = n1.date_input("Report Date", value=date.today())
-        s_day = n2.number_input("Outbreak Day *", min_value=1, step=1, value=29)
-        n3, n4 = st.columns(2)
-        s_cases = n3.number_input("Confirmed Cases", min_value=0, step=1)
-        s_deaths = n4.number_input("Deaths", min_value=0, step=1)
-        n5, n6, n7 = st.columns(3)
-        s_hcw = n5.number_input("HCW Affected", min_value=0, step=1)
-        s_etu = n6.number_input("ETUs Operational", min_value=0, step=1)
-        s_funding = n7.number_input("Funding Mobilized (USD)", min_value=0.0, step=100_000.0)
-        s_gap = st.number_input("Funding Gap (USD)", min_value=0.0, step=100_000.0)
-        s_notes = st.text_area("Notes / Key messages")
-        s_author = st.text_input("Created By", value="WHO EOC")
-        if st.form_submit_button("Submit SitRep", type="primary"):
-            payload = {
-                "report_date": s_date.isoformat(),
-                "outbreak_day": int(s_day),
-                "confirmed_cases": int(s_cases),
-                "deaths": int(s_deaths),
-                "healthcare_workers_affected": int(s_hcw),
-                "etus_operational": int(s_etu),
-                "total_funding_mobilized": float(s_funding),
-                "funding_gap": float(s_gap),
-                "notes": s_notes,
-                "created_by": s_author,
-            }
-            resp, code = api_post("sitreps", payload)
-            if code in (200, 201):
-                st.success("Situation report submitted!")
-                st.cache_data.clear()
-                st.rerun()
-            else:
-                st.error(resp.get("message", "Error"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
