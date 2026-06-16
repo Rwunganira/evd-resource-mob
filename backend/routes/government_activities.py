@@ -1,14 +1,15 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
+from flask_login import login_required
 from database import db
 from models import GovernmentActivity, PartnerContribution
 
 gov_activities_bp = Blueprint("gov_activities", __name__)
 
-VALID_STATUSES  = {"Planned", "Active", "Completed", "Suspended"}
+VALID_STATUSES   = {"Planned", "Active", "Completed", "Suspended"}
 VALID_PRIORITIES = {"High", "Medium", "Low"}
 
-PILLARS = {
+TECHNICAL_AREAS = {
     1: "Leadership and Coordination",
     2: "Epidemiological Surveillance",
     3: "Laboratory and Diagnostics",
@@ -34,33 +35,33 @@ def gov_activities_summary():
     ).all()
 
     total_cost    = sum(a.total_cost_usd or 0 for a in activities)
-    total_support = sum(a.total_partner_support for a in activities)
+    total_support = sum(a.total_committed for a in activities)
     total_gap     = sum(a.funding_gap for a in activities)
     coverage      = round(total_support / total_cost * 100, 1) if total_cost else 0
 
-    by_pillar = []
-    for pnum, pname in sorted(PILLARS.items()):
-        pillar_acts = [a for a in activities if a.pillar_number == pnum]
-        pc = sum(a.total_cost_usd or 0 for a in pillar_acts)
-        ps = sum(a.total_partner_support for a in pillar_acts)
-        pg = sum(a.funding_gap for a in pillar_acts)
-        by_pillar.append({
-            "pillar_number": pnum,
-            "pillar_name": pname,
-            "total_cost": round(pc, 2),
-            "total_support": round(ps, 2),
-            "gap": round(pg, 2),
-            "coverage_pct": round(ps / pc * 100, 1) if pc else 0,
-            "activity_count": len(pillar_acts),
+    by_ta = []
+    for ta_num, ta_name in sorted(TECHNICAL_AREAS.items()):
+        ta_acts = [a for a in activities if a.technical_area_number == ta_num]
+        tc = sum(a.total_cost_usd or 0 for a in ta_acts)
+        ts = sum(a.total_committed for a in ta_acts)
+        tg = sum(a.funding_gap for a in ta_acts)
+        by_ta.append({
+            "technical_area_number": ta_num,
+            "technical_area_name":   ta_name,
+            "total_cost":    round(tc, 2),
+            "total_support": round(ts, 2),
+            "gap":           round(tg, 2),
+            "coverage_pct":  round(ts / tc * 100, 1) if tc else 0,
+            "activity_count": len(ta_acts),
         })
 
     return success({
-        "total_activities": len(activities),
-        "total_cost_usd": round(total_cost, 2),
-        "total_partner_support": round(total_support, 2),
-        "total_funding_gap": round(total_gap, 2),
-        "coverage_pct": coverage,
-        "by_pillar": by_pillar,
+        "total_activities":    len(activities),
+        "total_cost_usd":      round(total_cost, 2),
+        "total_committed":     round(total_support, 2),
+        "total_funding_gap":   round(total_gap, 2),
+        "coverage_pct":        coverage,
+        "by_technical_area":   by_ta,
     })
 
 
@@ -68,40 +69,41 @@ def gov_activities_summary():
 def list_gov_activities():
     q = GovernmentActivity.query.filter(GovernmentActivity.status != "Suspended")
 
-    pillar   = request.args.get("pillar")
-    status   = request.args.get("status")
-    priority = request.args.get("priority")
+    technical_area = request.args.get("technical_area")
+    status         = request.args.get("status")
+    priority       = request.args.get("priority")
 
-    if pillar:
-        q = q.filter(GovernmentActivity.pillar.ilike(f"%{pillar}%"))
+    if technical_area:
+        q = q.filter(GovernmentActivity.technical_area.ilike(f"%{technical_area}%"))
     if status:
         q = q.filter(GovernmentActivity.status == status)
     if priority:
         q = q.filter(GovernmentActivity.priority == priority)
 
     activities = q.order_by(
-        GovernmentActivity.pillar_number,
+        GovernmentActivity.technical_area_number,
         GovernmentActivity.activity_number,
     ).all()
 
     grouped: dict = {}
     for a in activities:
-        pnum = a.pillar_number or 0
-        if pnum not in grouped:
-            grouped[pnum] = {
-                "pillar_number": pnum,
-                "pillar_name": PILLARS.get(pnum, a.pillar or ""),
+        ta_num = a.technical_area_number or 0
+        if ta_num not in grouped:
+            grouped[ta_num] = {
+                "technical_area_number": ta_num,
+                "technical_area_name":   TECHNICAL_AREAS.get(ta_num, a.technical_area or ""),
                 "activities": [],
             }
-        grouped[pnum]["activities"].append(a.to_dict())
+        grouped[ta_num]["activities"].append(a.to_dict())
 
     return success({
         "grouped": list(grouped.values()),
-        "flat": [a.to_dict() for a in activities],
+        "flat":    [a.to_dict() for a in activities],
     })
 
 
 @gov_activities_bp.route("/api/government-activities", methods=["POST"])
+@login_required
 def create_gov_activity():
     data = request.get_json() or {}
     name = (data.get("activity_name") or "").strip()
@@ -116,21 +118,21 @@ def create_gov_activity():
     if priority not in VALID_PRIORITIES:
         return error(f"priority must be one of {sorted(VALID_PRIORITIES)}")
 
-    pillar_num = data.get("pillar_number")
-    if pillar_num is not None:
+    ta_num = data.get("technical_area_number")
+    if ta_num is not None:
         try:
-            pillar_num = int(pillar_num)
+            ta_num = int(ta_num)
         except (TypeError, ValueError):
-            return error("pillar_number must be an integer 1–7")
-        if pillar_num not in PILLARS:
-            return error("pillar_number must be between 1 and 7")
+            return error("technical_area_number must be an integer 1–7")
+        if ta_num not in TECHNICAL_AREAS:
+            return error("technical_area_number must be between 1 and 7")
 
-    pillar_name = data.get("pillar") or (PILLARS.get(pillar_num, "") if pillar_num else "")
+    ta_name = data.get("technical_area") or (TECHNICAL_AREAS.get(ta_num, "") if ta_num else "")
 
     activity = GovernmentActivity(
         activity_number=data.get("activity_number", ""),
-        pillar=pillar_name,
-        pillar_number=pillar_num,
+        technical_area=ta_name,
+        technical_area_number=ta_num,
         sub_section=data.get("sub_section", ""),
         activity_name=name,
         total_cost_usd=float(data.get("total_cost_usd", 0) or 0),
@@ -152,6 +154,7 @@ def get_gov_activity(activity_id):
 
 
 @gov_activities_bp.route("/api/government-activities/<int:activity_id>", methods=["PUT"])
+@login_required
 def update_gov_activity(activity_id):
     activity = GovernmentActivity.query.get_or_404(activity_id)
     data = request.get_json() or {}
@@ -171,18 +174,18 @@ def update_gov_activity(activity_id):
             return error(f"priority must be one of {sorted(VALID_PRIORITIES)}")
         activity.priority = data["priority"]
 
-    for field in ("activity_number", "pillar", "sub_section", "notes"):
+    for field in ("activity_number", "technical_area", "sub_section", "notes"):
         if field in data:
             setattr(activity, field, data[field])
 
-    if "pillar_number" in data and data["pillar_number"] is not None:
+    if "technical_area_number" in data and data["technical_area_number"] is not None:
         try:
-            pnum = int(data["pillar_number"])
+            ta_num = int(data["technical_area_number"])
         except (TypeError, ValueError):
-            return error("pillar_number must be an integer 1–7")
-        if pnum not in PILLARS:
-            return error("pillar_number must be between 1 and 7")
-        activity.pillar_number = pnum
+            return error("technical_area_number must be an integer 1–7")
+        if ta_num not in TECHNICAL_AREAS:
+            return error("technical_area_number must be between 1 and 7")
+        activity.technical_area_number = ta_num
 
     if "total_cost_usd" in data:
         activity.total_cost_usd = float(data["total_cost_usd"] or 0)
@@ -193,6 +196,7 @@ def update_gov_activity(activity_id):
 
 
 @gov_activities_bp.route("/api/government-activities/<int:activity_id>", methods=["DELETE"])
+@login_required
 def delete_gov_activity(activity_id):
     activity = GovernmentActivity.query.get_or_404(activity_id)
     activity.status = "Suspended"

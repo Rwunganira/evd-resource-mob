@@ -25,7 +25,7 @@ def _err(msg, code=400):
 # ── Summary ───────────────────────────────────────────────────────────────────
 @evd_bp.route("/summary")
 def summary():
-    acts = GovernmentActivity.query.all()
+    acts = GovernmentActivity.query.filter(GovernmentActivity.status != "Suspended").all()
     total_cost      = sum(a.total_cost_usd or 0 for a in acts)
     total_committed = sum(a.total_committed for a in acts)
     total_gap       = sum(a.funding_gap for a in acts)
@@ -64,10 +64,10 @@ def list_activities():
     status  = request.args.get("status")
     priority = request.args.get("priority")
 
-    q = GovernmentActivity.query
-    if ta_num:   q = q.filter_by(technical_area_number=ta_num)
-    if status:   q = q.filter_by(status=status)
-    if priority: q = q.filter_by(priority=priority)
+    q = GovernmentActivity.query.filter(GovernmentActivity.status != "Suspended")
+    if ta_num:   q = q.filter(GovernmentActivity.technical_area_number == ta_num)
+    if status:   q = q.filter(GovernmentActivity.status == status)
+    if priority: q = q.filter(GovernmentActivity.priority == priority)
 
     acts = q.order_by(
         GovernmentActivity.technical_area_number,
