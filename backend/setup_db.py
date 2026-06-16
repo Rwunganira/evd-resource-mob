@@ -47,17 +47,19 @@ with app.app_context():
 
     # ── Ensure all mobilization partners exist ────────────────────────────────
     _MOB_PARTNERS = [
-        ("IOM",              "UN agency",         "Switzerland"),
-        ("WHO",              "UN agency",         "Switzerland"),
-        ("UNICEF",           "UN agency",         "USA"),
-        ("US CDC",           "Government / MoH",  "USA"),
-        ("CHAI",             "International NGO", "USA"),
-        ("Enabel/Tribe Hub", "International NGO", "Belgium"),
-        ("Enabel/Lomesu",    "International NGO", "Belgium"),
-        ("FAO",              "UN agency",         "Italy"),
-        ("UNFPA",            "UN agency",         "USA"),
-        ("World Bank",       "Bilateral donor",   "USA"),
-        ("UNHCR",            "UN agency",         "Switzerland"),
+        ("IOM",                    "UN agency",         "Switzerland"),
+        ("WHO",                    "UN agency",         "Switzerland"),
+        ("UNICEF",                 "UN agency",         "USA"),
+        ("US CDC",                 "Government / MoH",  "USA"),
+        ("US Department of State", "Bilateral donor",   "USA"),
+        ("PIH",                    "International NGO", "USA"),
+        ("CHAI",                   "International NGO", "USA"),
+        ("Enabel/Tribe Hub",       "International NGO", "Belgium"),
+        ("Enabel/Lomesu",          "International NGO", "Belgium"),
+        ("FAO",                    "UN agency",         "Italy"),
+        ("UNFPA",                  "UN agency",         "USA"),
+        ("World Bank",             "Bilateral donor",   "USA"),
+        ("UNHCR",                  "UN agency",         "Switzerland"),
     ]
     for pname, ptype, country in _MOB_PARTNERS:
         if not Partner.query.filter_by(name=pname).first():
