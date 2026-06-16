@@ -11,7 +11,7 @@ import streamlit as st
 from datetime import date, datetime
 
 import os
-API_BASE = os.getenv("FLASK_URL", "http://localhost:5000").rstrip("/") + "/api"
+API_BASE = os.getenv("FLASK_URL", "https://evd-resource-mob-50c0bbf1db4d.herokuapp.com").rstrip("/") + "/api"
 
 WHO_BLUE = "#0093D5"
 WHO_DARK = "#003D6B"
