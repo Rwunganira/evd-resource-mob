@@ -44,7 +44,7 @@
           {% for a in activities %}
           {% if a.technical_area_number != prev_ta.value %}
           {% set prev_ta.value = a.technical_area_number %}
-          <div class="px-3 py-1 small fw-bold text-white"
+          <div class="px-3 py-1 small fw-bold text-white ta-header"
                style="background:var(--who-dark);font-size:.72rem;">
             TA{{ a.technical_area_number }}: {{ a.technical_area }}
           </div>
@@ -52,7 +52,8 @@
           <a href="/evd/contributions?activity_id={{ a.id }}"
              class="d-block px-3 py-2 text-decoration-none border-bottom act-item
                     {% if selected and selected.id == a.id %}active bg-primary text-white{% else %}text-dark{% endif %}"
-             data-name="{{ a.activity_name | lower }}">
+             data-name="{{ a.activity_name | lower }}"
+             data-number="{{ a.activity_number | lower }}">
             <div class="small fw-semibold">{{ a.activity_number }} {{ a.activity_name[:70] }}</div>
             <div class="small {% if selected and selected.id == a.id %}text-white-50{% else %}text-muted{% endif %}">
               Gap: ${{ "{:,.0f}".format(a.funding_gap) }}
@@ -220,7 +221,18 @@
 document.getElementById('actSearch').addEventListener('input', function() {
   const q = this.value.toLowerCase();
   document.querySelectorAll('.act-item').forEach(el => {
-    el.style.display = el.dataset.name.includes(q) ? '' : 'none';
+    const match = el.dataset.name.includes(q) || el.dataset.number.includes(q);
+    el.style.display = match ? '' : 'none';
+  });
+  // Hide TA headers when all their activities are filtered out
+  document.querySelectorAll('.ta-header').forEach(hdr => {
+    let sibling = hdr.nextElementSibling;
+    let anyVisible = false;
+    while (sibling && sibling.classList.contains('act-item')) {
+      if (sibling.style.display !== 'none') { anyVisible = true; break; }
+      sibling = sibling.nextElementSibling;
+    }
+    hdr.style.display = anyVisible ? '' : 'none';
   });
 });
 
