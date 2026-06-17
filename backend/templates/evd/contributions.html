@@ -246,13 +246,19 @@ document.getElementById('bulkForm').addEventListener('submit', async function(e)
   const partners = {{ partners | tojson }};
   const contributions = [];
 
+  // Partners that already have a DB record for this activity
+  const existingPartners = new Set({{ existing_partner_names | tojson }});
+
+  // Send all partners so the server can update existing records to 0
   for (const p of partners) {
     const committed = parseFloat(this.elements[`committed_${p}`]?.value) || 0;
     const avail     = parseFloat(this.elements[`available_${p}`]?.value) || 0;
     const mobilize  = parseFloat(this.elements[`mobilize_${p}`]?.value) || 0;
     const disbursed = parseFloat(this.elements[`disbursed_${p}`]?.value) || 0;
     const status    = this.elements[`status_${p}`]?.value || 'Committed';
-    if (committed === 0 && avail === 0 && mobilize === 0 && disbursed === 0) continue;
+    const hasExisting = existingPartners.has(p);
+    // Skip only if new partner (no existing record) AND all values are zero
+    if (!hasExisting && committed === 0 && avail === 0 && mobilize === 0 && disbursed === 0) continue;
     contributions.push({
       partner_name:           p,
       amount_committed_usd:   committed,

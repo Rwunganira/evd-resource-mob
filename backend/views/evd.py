@@ -69,6 +69,9 @@ def contributions_page():
         for c in selected.partner_contributions:
             existing_contribs[c.partner_name] = c
 
+    # Names of partners that already have a contribution for this activity
+    existing_partner_names = list(existing_contribs.keys())
+
     # All active partners from DB, sorted by name
     partners = [
         p.name for p in Partner.query.filter(Partner.status != "Inactive").order_by(Partner.name).all()
@@ -88,6 +91,7 @@ def contributions_page():
         activities=activities,
         selected=selected,
         existing_contribs=existing_contribs,
+        existing_partner_names=existing_partner_names,
         partners=partners,
         partner_totals=partner_totals,
         can_edit=current_user.role in ("admin", "editor"),
