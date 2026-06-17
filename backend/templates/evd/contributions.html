@@ -241,23 +241,25 @@ document.querySelectorAll('.committed-input').forEach(i => i.addEventListener('i
 // Bulk save
 document.getElementById('bulkForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const aid  = this.querySelector('[name="government_activity_id"]').value;
+  // Use form.elements[name] — direct DOM name lookup, safe with any partner name
+  const aid  = this.elements['government_activity_id'].value;
   const partners = {{ partners | tojson }};
   const contributions = [];
 
   for (const p of partners) {
-    const committed = parseFloat(this.querySelector(`[name="committed_${p}"]`)?.value) || 0;
-    if (committed === 0) {
-      const avail = parseFloat(this.querySelector(`[name="available_${p}"]`)?.value) || 0;
-      if (avail === 0) continue;   // skip entirely-zero rows
-    }
+    const committed = parseFloat(this.elements[`committed_${p}`]?.value) || 0;
+    const avail     = parseFloat(this.elements[`available_${p}`]?.value) || 0;
+    const mobilize  = parseFloat(this.elements[`mobilize_${p}`]?.value) || 0;
+    const disbursed = parseFloat(this.elements[`disbursed_${p}`]?.value) || 0;
+    const status    = this.elements[`status_${p}`]?.value || 'Committed';
+    if (committed === 0 && avail === 0 && mobilize === 0 && disbursed === 0) continue;
     contributions.push({
       partner_name:           p,
-      amount_committed_usd:   parseFloat(this.querySelector(`[name="committed_${p}"]`)?.value) || 0,
-      amount_available_usd:   parseFloat(this.querySelector(`[name="available_${p}"]`)?.value) || 0,
-      amount_to_mobilize_usd: parseFloat(this.querySelector(`[name="mobilize_${p}"]`)?.value) || 0,
-      amount_disbursed_usd:   parseFloat(this.querySelector(`[name="disbursed_${p}"]`)?.value) || 0,
-      status: this.querySelector(`[name="status_${p}"]`)?.value || 'Committed',
+      amount_committed_usd:   committed,
+      amount_available_usd:   avail,
+      amount_to_mobilize_usd: mobilize,
+      amount_disbursed_usd:   disbursed,
+      status:                 status,
     });
   }
 
