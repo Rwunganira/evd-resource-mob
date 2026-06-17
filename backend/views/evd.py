@@ -38,8 +38,8 @@ def activities_page():
 
     total_cost      = sum(a.total_cost_usd or 0 for a in activities)
     total_committed = sum(a.total_committed for a in activities)
-    total_gap       = sum(a.funding_gap for a in activities)
-    coverage        = round(total_committed / total_cost * 100, 1) if total_cost else 0
+    total_gap       = max(0, total_cost - total_committed)
+    coverage        = round(min(100, total_committed / total_cost * 100), 1) if total_cost else 0
 
     return render_template(
         "evd/activities.html",

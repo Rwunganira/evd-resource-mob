@@ -28,22 +28,22 @@ def summary():
     acts = GovernmentActivity.query.filter(GovernmentActivity.status != "Suspended").all()
     total_cost      = sum(a.total_cost_usd or 0 for a in acts)
     total_committed = sum(a.total_committed for a in acts)
-    total_gap       = sum(a.funding_gap for a in acts)
-    coverage        = (total_committed / total_cost * 100) if total_cost else 0
+    total_gap       = max(0, total_cost - total_committed)
+    coverage        = min(100, total_committed / total_cost * 100) if total_cost else 0
 
     by_ta = []
     for n, name in _TA.items():
         ta_acts = [a for a in acts if a.technical_area_number == n]
         ta_cost = sum(a.total_cost_usd or 0 for a in ta_acts)
         ta_com  = sum(a.total_committed for a in ta_acts)
-        ta_gap  = sum(a.funding_gap for a in ta_acts)
+        ta_gap  = max(0, ta_cost - ta_com)
         by_ta.append({
             "technical_area_number": n,
             "technical_area": name,
             "total_cost": ta_cost,
             "total_committed": ta_com,
             "total_gap": ta_gap,
-            "coverage_pct": round(ta_com / ta_cost * 100, 1) if ta_cost else 0,
+            "coverage_pct": round(min(100, ta_com / ta_cost * 100), 1) if ta_cost else 0,
             "activity_count": len(ta_acts),
         })
 
