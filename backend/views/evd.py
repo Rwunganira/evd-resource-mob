@@ -92,3 +92,52 @@ def contributions_page():
         partner_totals=partner_totals,
         can_edit=current_user.role in ("admin", "editor"),
     )
+
+
+@evd_view_bp.route("/evd/contributions/bulk", methods=["POST"])
+def save_contributions_bulk():
+    aid = request.form.get("government_activity_id", type=int)
+    if not aid:
+        return '<div class="alert alert-danger mt-2">Missing activity ID</div>'
+
+    activity = GovernmentActivity.query.get(aid)
+    if not activity:
+        return '<div class="alert alert-danger mt-2">Activity not found</div>'
+
+    partners = [
+        p for p in Partner.query.filter(Partner.status != "Inactive").order_by(Partner.name).all()
+    ]
+
+    for p in partners:
+        pname     = p.name
+        committed = float(request.form.get(f"committed_{pname}") or 0)
+        available = float(request.form.get(f"available_{pname}") or 0)
+        mobilize  = float(request.form.get(f"mobilize_{pname}") or 0)
+        disbursed = float(request.form.get(f"disbursed_{pname}") or 0)
+        status    = request.form.get(f"status_{pname}") or "Committed"
+
+        existing = PartnerContribution.query.filter_by(
+            government_activity_id=aid, partner_name=pname
+        ).first()
+
+        if existing:
+            existing.amount_committed_usd   = committed
+            existing.amount_available_usd   = available
+            existing.amount_to_mobilize_usd = mobilize
+            existing.amount_disbursed_usd   = disbursed
+            existing.status                 = status
+        else:
+            db.session.add(PartnerContribution(
+                government_activity_id=aid,
+                partner_name=pname,
+                partner_id=p.id,
+                amount_committed_usd=committed,
+                amount_available_usd=available,
+                amount_to_mobilize_usd=mobilize,
+                amount_disbursed_usd=disbursed,
+                modality="Direct Implementation",
+                status=status,
+            ))
+
+    db.session.commit()
+    return f'<div class="alert alert-success mt-2"><i class="bi bi-check-circle me-1"></i>{len(partners)} contributions saved</div>'
