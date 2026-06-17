@@ -15,13 +15,6 @@ _TA = {
     7: "Research and Strategic Information",
 }
 
-_PARTNERS = [
-    "IOM", "WHO", "UNICEF", "US CDC", "CHAI",
-    "Enabel/Tribe Hub", "Enabel/Lomesu", "FAO",
-    "UNFPA", "World Bank", "UNHCR",
-]
-
-
 @evd_view_bp.before_request
 @login_required
 def require_login():
@@ -76,6 +69,11 @@ def contributions_page():
         for c in selected.partner_contributions:
             existing_contribs[c.partner_name] = c
 
+    # All active partners from DB, sorted by name
+    partners = [
+        p.name for p in Partner.query.filter(Partner.status != "Inactive").order_by(Partner.name).all()
+    ]
+
     # Per-partner totals across all activities
     all_contribs = PartnerContribution.query.all()
     partner_totals = {}
@@ -90,7 +88,7 @@ def contributions_page():
         activities=activities,
         selected=selected,
         existing_contribs=existing_contribs,
-        partners=_PARTNERS,
+        partners=partners,
         partner_totals=partner_totals,
         can_edit=current_user.role in ("admin", "editor"),
     )
