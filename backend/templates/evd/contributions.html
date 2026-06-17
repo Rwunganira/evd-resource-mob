@@ -37,8 +37,13 @@
         <strong>Select Activity</strong>
       </div>
       <div class="card-body p-0">
-        <input type="text" id="actSearch" class="form-control form-control-sm border-0 border-bottom rounded-0"
-               placeholder="Search activities…">
+        <div class="position-relative">
+          <input type="text" id="actSearch" class="form-control form-control-sm border-0 border-bottom rounded-0 pe-4"
+                 placeholder="Search activities…" autocomplete="off">
+          <span id="actClear" class="position-absolute end-0 top-50 translate-middle-y pe-2 text-muted d-none"
+                style="cursor:pointer;font-size:.85rem;" title="Clear search">✕</span>
+        </div>
+        <div id="noResults" class="px-3 py-2 small text-muted d-none">No matching activities.</div>
         <div style="max-height:500px;overflow-y:auto;">
           {% set prev_ta = namespace(value=None) %}
           {% for a in activities %}
@@ -53,7 +58,8 @@
              class="d-block px-3 py-2 text-decoration-none border-bottom act-item
                     {% if selected and selected.id == a.id %}active bg-primary text-white{% else %}text-dark{% endif %}"
              data-name="{{ a.activity_name | lower }}"
-             data-number="{{ a.activity_number | lower }}">
+             data-number="{{ a.activity_number | lower }}"
+             data-ta="{{ a.technical_area | lower }}">
             <div class="small fw-semibold">{{ a.activity_number }} {{ a.activity_name[:70] }}</div>
             <div class="small {% if selected and selected.id == a.id %}text-white-50{% else %}text-muted{% endif %}">
               Gap: ${{ "{:,.0f}".format(a.funding_gap) }}
@@ -218,23 +224,46 @@
 {% block scripts %}
 <script>
 // Activity search filter
-document.getElementById('actSearch').addEventListener('input', function() {
-  const q = this.value.toLowerCase();
+const actSearch  = document.getElementById('actSearch');
+const actClear   = document.getElementById('actClear');
+const noResults  = document.getElementById('noResults');
+
+function applySearch(q) {
+  q = q.toLowerCase().trim();
+  let visible = 0;
   document.querySelectorAll('.act-item').forEach(el => {
-    const match = el.dataset.name.includes(q) || el.dataset.number.includes(q);
+    const match = (el.dataset.name   || '').includes(q)
+               || (el.dataset.number || '').includes(q)
+               || (el.dataset.ta     || '').includes(q);
     el.style.display = match ? '' : 'none';
+    if (match) visible++;
+    // keep search term in the link so it survives the page reload
+    try {
+      const url = new URL(el.href, location.origin);
+      if (q) { url.searchParams.set('q', q); } else { url.searchParams.delete('q'); }
+      el.href = url.pathname + (url.search || '');
+    } catch(_) {}
   });
-  // Hide TA headers when all their activities are filtered out
+  // Hide TA headers whose activities are all hidden
   document.querySelectorAll('.ta-header').forEach(hdr => {
-    let sibling = hdr.nextElementSibling;
-    let anyVisible = false;
-    while (sibling && sibling.classList.contains('act-item')) {
-      if (sibling.style.display !== 'none') { anyVisible = true; break; }
-      sibling = sibling.nextElementSibling;
+    let sib = hdr.nextElementSibling;
+    let any = false;
+    while (sib && sib.classList.contains('act-item')) {
+      if (sib.style.display !== 'none') { any = true; break; }
+      sib = sib.nextElementSibling;
     }
-    hdr.style.display = anyVisible ? '' : 'none';
+    hdr.style.display = any ? '' : 'none';
   });
-});
+  noResults.classList.toggle('d-none', visible > 0 || !q);
+  actClear.classList.toggle('d-none', !q);
+}
+
+// Restore search from URL on page load
+const initQ = new URLSearchParams(location.search).get('q') || '';
+if (initQ) { actSearch.value = initQ; applySearch(initQ); }
+
+actSearch.addEventListener('input', () => applySearch(actSearch.value));
+actClear.addEventListener('click', () => { actSearch.value = ''; applySearch(''); actSearch.focus(); });
 
 {% if can_edit and selected %}
 const activityCost = {{ selected.total_cost_usd or 0 }};
