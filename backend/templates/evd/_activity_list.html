@@ -1,0 +1,21 @@
+{% set prev_ta = namespace(value=None) %}
+{% for a in activities %}
+  {% if a.technical_area_number != prev_ta.value %}
+    {% set prev_ta.value = a.technical_area_number %}
+    <div class="px-3 py-1 small fw-bold text-white"
+         style="background:var(--who-dark);font-size:.72rem;">
+      TA{{ a.technical_area_number }}: {{ a.technical_area }}
+    </div>
+  {% endif %}
+  <a href="/evd/contributions?activity_id={{ a.id }}{% if q %}&q={{ q }}{% endif %}"
+     class="d-block px-3 py-2 text-decoration-none border-bottom
+            {% if selected and selected.id == a.id %}bg-primary text-white{% else %}text-dark{% endif %}">
+    <div class="small fw-semibold">{{ a.activity_number }} {{ a.activity_name[:70] }}</div>
+    <div class="small {% if selected and selected.id == a.id %}text-white-50{% else %}text-muted{% endif %}">
+      Gap: ${{ "{:,.0f}".format(a.funding_gap) }}
+      &nbsp;·&nbsp;{{ "%.0f"|format(a.coverage_pct) }}% covered
+    </div>
+  </a>
+{% else %}
+  <div class="px-3 py-2 small text-muted fst-italic">No matching activities.</div>
+{% endfor %}

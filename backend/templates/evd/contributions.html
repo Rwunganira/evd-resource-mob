@@ -37,36 +37,19 @@
         <strong>Select Activity</strong>
       </div>
       <div class="card-body p-0">
-        <div class="position-relative">
-          <input type="text" id="actSearch" class="form-control form-control-sm border-0 border-bottom rounded-0 pe-4"
-                 placeholder="Search activities…" autocomplete="off">
-          <span id="actClear" class="position-absolute end-0 top-50 translate-middle-y pe-2 text-muted d-none"
-                style="cursor:pointer;font-size:.85rem;" title="Clear search">✕</span>
-        </div>
-        <div id="noResults" class="px-3 py-2 small text-muted d-none">No matching activities.</div>
-        <div style="max-height:500px;overflow-y:auto;">
-          {% set prev_ta = namespace(value=None) %}
-          {% for a in activities %}
-          {% if a.technical_area_number != prev_ta.value %}
-          {% set prev_ta.value = a.technical_area_number %}
-          <div class="px-3 py-1 small fw-bold text-white ta-header"
-               style="background:var(--who-dark);font-size:.72rem;">
-            TA{{ a.technical_area_number }}: {{ a.technical_area }}
-          </div>
-          {% endif %}
-          <a href="/evd/contributions?activity_id={{ a.id }}"
-             class="d-block px-3 py-2 text-decoration-none border-bottom act-item
-                    {% if selected and selected.id == a.id %}active bg-primary text-white{% else %}text-dark{% endif %}"
-             data-name="{{ a.activity_name | lower }}"
-             data-number="{{ a.activity_number | lower }}"
-             data-ta="{{ a.technical_area | lower }}">
-            <div class="small fw-semibold">{{ a.activity_number }} {{ a.activity_name[:70] }}</div>
-            <div class="small {% if selected and selected.id == a.id %}text-white-50{% else %}text-muted{% endif %}">
-              Gap: ${{ "{:,.0f}".format(a.funding_gap) }}
-              &nbsp;·&nbsp;{{ "%.0f"|format(a.coverage_pct) }}% covered
-            </div>
-          </a>
-          {% endfor %}
+        <input type="hidden" name="selected_activity_id"
+               value="{{ selected.id if selected else '' }}">
+        <input type="text" name="q" value="{{ q }}"
+               class="form-control form-control-sm border-0 border-bottom rounded-0"
+               placeholder="Search activities…"
+               autocomplete="off"
+               hx-get="/evd/contributions/search"
+               hx-trigger="input changed delay:300ms"
+               hx-target="#activityList"
+               hx-swap="innerHTML"
+               hx-include="[name='selected_activity_id']">
+        <div id="activityList" style="max-height:500px;overflow-y:auto;">
+          {% include "evd/_activity_list.html" %}
         </div>
       </div>
     </div>
@@ -88,27 +71,33 @@
         </div>
       </div>
       <div class="card-body">
-        <!-- Activity cost summary -->
-        <div class="row g-2 mb-3">
+        <!-- Activity cost summary — HTMX live-updates on input changes -->
+        <div class="row g-2 mb-3" id="liveTotals"
+             {% if can_edit %}
+             hx-post="/evd/contributions/preview"
+             hx-trigger="input delay:300ms from:#bulkForm"
+             hx-include="#bulkForm"
+             hx-swap="innerHTML"
+             {% endif %}>
           <div class="col-md-3 text-center">
             <div class="small text-muted">Govt Cost</div>
             <div class="fw-bold">${{ "{:,.0f}".format(selected.total_cost_usd or 0) }}</div>
           </div>
           <div class="col-md-3 text-center">
             <div class="small text-muted">Committed</div>
-            <div class="fw-bold text-success" id="liveTotalCommitted">
+            <div class="fw-bold text-success">
               ${{ "{:,.0f}".format(selected.total_committed) }}
             </div>
           </div>
           <div class="col-md-3 text-center">
             <div class="small text-muted">Gap</div>
-            <div class="fw-bold text-danger" id="liveTotalGap">
+            <div class="fw-bold text-danger">
               ${{ "{:,.0f}".format(selected.funding_gap) }}
             </div>
           </div>
           <div class="col-md-3 text-center">
             <div class="small text-muted">Coverage</div>
-            <div class="fw-bold {% if selected.coverage_pct >= 75 %}text-success{% elif selected.coverage_pct >= 40 %}text-warning{% else %}text-danger{% endif %}" id="liveCovPct">
+            <div class="fw-bold {% if selected.coverage_pct >= 75 %}text-success{% elif selected.coverage_pct >= 40 %}text-warning{% else %}text-danger{% endif %}">
               {{ "%.1f"|format(selected.coverage_pct) }}%
             </div>
           </div>
@@ -138,10 +127,9 @@
                 <tr>
                   <td class="fw-semibold small">{{ pname }}</td>
                   <td>
-                    <input type="number" class="form-control form-control-sm text-end committed-input"
+                    <input type="number" class="form-control form-control-sm text-end"
                            name="committed_{{ pname }}" min="0" step="1"
-                           value="{{ c.amount_committed_usd | int if c else 0 }}"
-                           data-partner="{{ pname }}">
+                           value="{{ c.amount_committed_usd | int if c else 0 }}">
                   </td>
                   <td>
                     <input type="number" class="form-control form-control-sm text-end"
@@ -219,69 +207,4 @@
     {% endif %}
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Activity search filter
-const actSearch  = document.getElementById('actSearch');
-const actClear   = document.getElementById('actClear');
-const noResults  = document.getElementById('noResults');
-
-function applySearch(q) {
-  q = q.toLowerCase().trim();
-  let visible = 0;
-  document.querySelectorAll('.act-item').forEach(el => {
-    const match = (el.dataset.name   || '').includes(q)
-               || (el.dataset.number || '').includes(q)
-               || (el.dataset.ta     || '').includes(q);
-    el.style.display = match ? '' : 'none';
-    if (match) visible++;
-    // keep search term in the link so it survives the page reload
-    try {
-      const url = new URL(el.href, location.origin);
-      if (q) { url.searchParams.set('q', q); } else { url.searchParams.delete('q'); }
-      el.href = url.pathname + (url.search || '');
-    } catch(_) {}
-  });
-  // Hide TA headers whose activities are all hidden
-  document.querySelectorAll('.ta-header').forEach(hdr => {
-    let sib = hdr.nextElementSibling;
-    let any = false;
-    while (sib && sib.classList.contains('act-item')) {
-      if (sib.style.display !== 'none') { any = true; break; }
-      sib = sib.nextElementSibling;
-    }
-    hdr.style.display = any ? '' : 'none';
-  });
-  noResults.classList.toggle('d-none', visible > 0 || !q);
-  actClear.classList.toggle('d-none', !q);
-}
-
-// Restore search from URL on page load
-const initQ = new URLSearchParams(location.search).get('q') || '';
-if (initQ) { actSearch.value = initQ; applySearch(initQ); }
-
-actSearch.addEventListener('input', () => applySearch(actSearch.value));
-actClear.addEventListener('click', () => { actSearch.value = ''; applySearch(''); actSearch.focus(); });
-
-{% if can_edit and selected %}
-const activityCost = {{ selected.total_cost_usd or 0 }};
-
-// Live totals
-function updateLiveTotals() {
-  let total = 0;
-  document.querySelectorAll('.committed-input').forEach(inp => {
-    total += parseFloat(inp.value) || 0;
-  });
-  const gap = Math.max(0, activityCost - total);
-  const cov = activityCost > 0 ? Math.min(100, total / activityCost * 100) : 0;
-  document.getElementById('liveTotalCommitted').textContent = '$' + total.toLocaleString('en-US', {maximumFractionDigits:0});
-  document.getElementById('liveTotalGap').textContent       = '$' + gap.toLocaleString('en-US', {maximumFractionDigits:0});
-  document.getElementById('liveCovPct').textContent         = cov.toFixed(1) + '%';
-}
-document.querySelectorAll('.committed-input').forEach(i => i.addEventListener('input', updateLiveTotals));
-
-{% endif %}
-</script>
 {% endblock %}

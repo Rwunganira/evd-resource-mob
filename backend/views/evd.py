@@ -56,10 +56,20 @@ def activities_page():
 
 @evd_view_bp.route("/evd/contributions")
 def contributions_page():
-    activities = GovernmentActivity.query.order_by(
+    q = request.args.get("q", "").strip().lower()
+
+    all_activities = GovernmentActivity.query.order_by(
         GovernmentActivity.technical_area_number,
         GovernmentActivity.activity_number,
     ).all()
+
+    if q:
+        activities = [a for a in all_activities if
+                      q in (a.activity_name or "").lower() or
+                      q in (a.activity_number or "").lower() or
+                      q in (a.technical_area or "").lower()]
+    else:
+        activities = all_activities
 
     selected_id = request.args.get("activity_id", type=int)
     selected    = GovernmentActivity.query.get(selected_id) if selected_id else None
@@ -69,12 +79,10 @@ def contributions_page():
         for c in selected.partner_contributions:
             existing_contribs[c.partner_name] = c
 
-    # All active partners from DB, sorted by name
     partners = [
         p.name for p in Partner.query.filter(Partner.status != "Inactive").order_by(Partner.name).all()
     ]
 
-    # Per-partner totals across all activities
     all_contribs = PartnerContribution.query.all()
     partner_totals = {}
     for c in all_contribs:
@@ -90,7 +98,72 @@ def contributions_page():
         existing_contribs=existing_contribs,
         partners=partners,
         partner_totals=partner_totals,
+        q=q,
         can_edit=current_user.role in ("admin", "editor"),
+    )
+
+
+@evd_view_bp.route("/evd/contributions/search")
+def search_activities():
+    q = request.args.get("q", "").strip().lower()
+    selected_id = request.args.get("selected_activity_id", type=int)
+    selected = GovernmentActivity.query.get(selected_id) if selected_id else None
+
+    activities = GovernmentActivity.query.order_by(
+        GovernmentActivity.technical_area_number,
+        GovernmentActivity.activity_number,
+    ).all()
+
+    if q:
+        activities = [a for a in activities if
+                      q in (a.activity_name or "").lower() or
+                      q in (a.activity_number or "").lower() or
+                      q in (a.technical_area or "").lower()]
+
+    return render_template("evd/_activity_list.html",
+                           activities=activities,
+                           selected=selected,
+                           q=q)
+
+
+@evd_view_bp.route("/evd/contributions/preview", methods=["POST"])
+def preview_contributions():
+    aid = request.form.get("government_activity_id", type=int)
+    if not aid:
+        return ""
+    activity = GovernmentActivity.query.get(aid)
+    if not activity:
+        return ""
+
+    partners = [
+        p.name for p in Partner.query.filter(Partner.status != "Inactive").order_by(Partner.name).all()
+    ]
+
+    total_committed = sum(
+        float(request.form.get(f"committed_{pname}") or 0) for pname in partners
+    )
+    total_cost = activity.total_cost_usd or 0
+    gap        = max(0, total_cost - total_committed)
+    coverage   = min(100, total_committed / total_cost * 100) if total_cost else 0
+    cov_class  = "text-success" if coverage >= 75 else ("text-warning" if coverage >= 40 else "text-danger")
+
+    return (
+        f'<div class="col-md-3 text-center">'
+        f'<div class="small text-muted">Govt Cost</div>'
+        f'<div class="fw-bold">${total_cost:,.0f}</div>'
+        f'</div>'
+        f'<div class="col-md-3 text-center">'
+        f'<div class="small text-muted">Committed</div>'
+        f'<div class="fw-bold text-success">${total_committed:,.0f}</div>'
+        f'</div>'
+        f'<div class="col-md-3 text-center">'
+        f'<div class="small text-muted">Gap</div>'
+        f'<div class="fw-bold text-danger">${gap:,.0f}</div>'
+        f'</div>'
+        f'<div class="col-md-3 text-center">'
+        f'<div class="small text-muted">Coverage</div>'
+        f'<div class="fw-bold {cov_class}">{coverage:.1f}%</div>'
+        f'</div>'
     )
 
 
