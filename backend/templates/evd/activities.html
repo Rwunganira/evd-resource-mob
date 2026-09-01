@@ -8,54 +8,65 @@
 </div>
 
 <!-- Summary metrics -->
-<div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-4">
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-6 g-3 mb-4">
   <div class="col">
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-3">
         <div class="text-muted small text-uppercase fw-semibold">Govt Budget (USD)</div>
         <div class="fs-4 fw-bold text-primary">${{ "{:,.0f}".format(total_cost) }}</div>
+        <div class="small text-muted mt-1">Planned cost of all activities</div>
       </div>
     </div>
   </div>
   <div class="col">
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-3">
         <div class="text-muted small text-uppercase fw-semibold">Partner Committed (USD)</div>
         <div class="fs-4 fw-bold text-success">${{ "{:,.0f}".format(total_committed) }}</div>
+        <div class="progress mt-1" style="height:6px;">
+          <div class="progress-bar {% if coverage >= 75 %}bg-success{% elif coverage >= 40 %}bg-warning{% else %}bg-danger{% endif %}"
+               style="width:{{ [coverage, 100]|min }}%"></div>
+        </div>
+        <div class="small text-muted mt-1">{{ coverage }}% of budget covered</div>
       </div>
     </div>
   </div>
   <div class="col">
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small text-uppercase fw-semibold">Partner Disbursed (USD)</div>
+        <div class="fs-4 fw-bold text-success">${{ "{:,.0f}".format(total_disbursed) }}</div>
+        <div class="small text-muted mt-1">Transferred to government</div>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-3">
         <div class="text-muted small text-uppercase fw-semibold">Budget Executed (USD)</div>
         <div class="fs-4 fw-bold text-info">${{ "{:,.0f}".format(total_executed) }}</div>
         <div class="progress mt-1" style="height:6px;">
           <div class="progress-bar bg-info" style="width:{{ [execution_rate, 100]|min }}%"></div>
         </div>
-        <div class="small text-muted mt-1">{{ execution_rate }}% of budget</div>
+        <div class="small text-muted mt-1">{{ execution_rate }}% of disbursed spent</div>
       </div>
     </div>
   </div>
   <div class="col">
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-3">
-        <div class="text-muted small text-uppercase fw-semibold">Funding Gap (USD)</div>
-        <div class="fs-4 fw-bold text-danger">${{ "{:,.0f}".format(total_gap) }}</div>
+        <div class="text-muted small text-uppercase fw-semibold">Commitment Gap (USD)</div>
+        <div class="fs-4 fw-bold text-danger">${{ "{:,.0f}".format(commitment_gap) }}</div>
+        <div class="small text-muted mt-1">Budget &minus; committed</div>
       </div>
     </div>
   </div>
   <div class="col">
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-3">
-        <div class="text-muted small text-uppercase fw-semibold">Overall Coverage</div>
-        <div class="fs-4 fw-bold {% if coverage >= 75 %}text-success{% elif coverage >= 40 %}text-warning{% else %}text-danger{% endif %}">
-          {{ coverage }}%
-        </div>
-        <div class="progress mt-1" style="height:6px;">
-          <div class="progress-bar {% if coverage >= 75 %}bg-success{% elif coverage >= 40 %}bg-warning{% else %}bg-danger{% endif %}"
-               style="width:{{ [coverage, 100]|min }}%"></div>
-        </div>
+        <div class="text-muted small text-uppercase fw-semibold">Disbursement Gap (USD)</div>
+        <div class="fs-4 fw-bold text-danger">${{ "{:,.0f}".format(disbursement_gap) }}</div>
+        <div class="small text-muted mt-1">Budget &minus; disbursed</div>
       </div>
     </div>
   </div>
@@ -96,44 +107,54 @@
     <table class="table table-sm table-hover align-middle mb-0">
       <thead>
         <tr>
-          <th style="width:70px">#</th>
+          <th style="width:60px">#</th>
           <th>Activity</th>
           <th style="width:100px">Sub-section</th>
-          <th class="text-end" style="width:120px">Govt Cost</th>
-          <th class="text-end" style="width:130px">Budget Executed</th>
-          <th class="text-end" style="width:120px">Committed</th>
-          <th class="text-end" style="width:110px">Gap</th>
-          <th class="text-center" style="width:70px">Cov %</th>
-          <th class="text-center" style="width:90px">Status</th>
-          <th class="text-center" style="width:80px">Priority</th>
-          {% if can_edit %}<th style="width:70px"></th>{% endif %}
+          <th class="text-end" style="width:115px">Govt Cost</th>
+          <th class="text-end" style="width:115px">Committed</th>
+          <th class="text-end" style="width:115px">Disbursed</th>
+          <th class="text-end" style="width:120px">Budget Executed</th>
+          <th class="text-end" style="width:130px" title="Budget minus committed">Commitment Gap</th>
+          <th class="text-end" style="width:135px" title="Budget minus disbursed">Disbursement Gap</th>
+          <th class="text-center" style="width:65px" title="Committed / budget">Cov %</th>
+          <th class="text-center" style="width:70px" title="Budget executed / disbursed">Exec %</th>
+          <th class="text-center" style="width:85px">Status</th>
+          <th class="text-center" style="width:75px">Priority</th>
+          {% if can_edit %}<th style="width:60px"></th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for a in ta.activities %}
         {% set cov = a.coverage_pct %}
+        {% set exec = a.execution_pct %}
         <tr class="activity-row" data-ta="{{ a.technical_area_number }}" data-status="{{ a.status }}"
             data-name="{{ a.activity_name | lower }}">
           <td class="text-muted small">{{ a.activity_number }}</td>
           <td>{{ a.activity_name }}</td>
           <td class="small text-muted">{{ a.sub_section }}</td>
           <td class="text-end">${{ "{:,.0f}".format(a.total_cost_usd or 0) }}</td>
-          <td class="text-end">
-            ${{ "{:,.0f}".format(a.budget_executed_usd or 0) }}
-            {% if a.total_cost_usd %}
-            <div class="small {% if a.execution_pct >= 75 %}text-success{% elif a.execution_pct >= 40 %}text-warning{% else %}text-muted{% endif %}">
-              {{ "%.0f"|format(a.execution_pct) }}%
-            </div>
-            {% endif %}
-          </td>
           <td class="text-end text-success">${{ "{:,.0f}".format(a.total_committed) }}</td>
-          <td class="text-end {% if a.funding_gap == 0 %}text-success{% elif cov >= 50 %}text-warning{% else %}text-danger{% endif %}">
+          <td class="text-end text-success">${{ "{:,.0f}".format(a.total_disbursed) }}</td>
+          <td class="text-end text-info">${{ "{:,.0f}".format(a.budget_executed_usd or 0) }}</td>
+          <td class="text-end {% if a.total_cost_usd and a.funding_gap == 0 %}text-success{% elif cov >= 50 %}text-warning{% else %}text-danger{% endif %}">
             ${{ "{:,.0f}".format(a.funding_gap) }}
+          </td>
+          <td class="text-end {% if a.total_cost_usd and a.disbursement_gap == 0 %}text-success{% else %}text-danger{% endif %}">
+            ${{ "{:,.0f}".format(a.disbursement_gap) }}
           </td>
           <td class="text-center">
             <span class="badge {% if cov >= 75 %}bg-success{% elif cov >= 40 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
               {{ "%.0f"|format(cov) }}%
             </span>
+          </td>
+          <td class="text-center">
+            {% if a.total_disbursed %}
+            <span class="badge {% if exec > 100 %}bg-dark{% elif exec >= 75 %}bg-success{% elif exec >= 40 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ "%.0f"|format(exec) }}%
+            </span>
+            {% else %}
+            <span class="text-muted small">&ndash;</span>
+            {% endif %}
           </td>
           <td class="text-center">
             <span class="badge {% if a.status == 'Active' %}bg-success{% elif a.status == 'Completed' %}bg-secondary{% elif a.status == 'Suspended' %}bg-danger{% else %}bg-light text-dark border{% endif %}">

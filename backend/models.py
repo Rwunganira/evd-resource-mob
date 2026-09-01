@@ -310,8 +310,19 @@ class GovernmentActivity(db.Model):
         return sum(c.amount_committed_usd or 0 for c in self.partner_contributions)
 
     @property
+    def total_disbursed(self):
+        """Funds partners have actually transferred to the government."""
+        return sum(c.amount_disbursed_usd or 0 for c in self.partner_contributions)
+
+    @property
     def funding_gap(self):
+        """Commitment gap: planned budget minus what partners have committed."""
         return max(0, (self.total_cost_usd or 0) - self.total_committed)
+
+    @property
+    def disbursement_gap(self):
+        """Disbursement gap: planned budget minus what partners have disbursed."""
+        return max(0, (self.total_cost_usd or 0) - self.total_disbursed)
 
     @property
     def coverage_pct(self):
@@ -321,11 +332,11 @@ class GovernmentActivity(db.Model):
 
     @property
     def execution_pct(self):
-        """Budget executed as a percentage of the government budget (uncapped —
-        a value above 100 means the activity is overspent)."""
-        if not self.total_cost_usd:
+        """Budget executed as a percentage of funds disbursed to the government
+        (uncapped — a value above 100 means more was spent than received)."""
+        if not self.total_disbursed:
             return 0
-        return (self.budget_executed_usd or 0) / self.total_cost_usd * 100
+        return (self.budget_executed_usd or 0) / self.total_disbursed * 100
 
     def to_dict(self):
         return {
@@ -342,7 +353,9 @@ class GovernmentActivity(db.Model):
             "priority": self.priority,
             "notes": self.notes,
             "total_committed": round(self.total_committed, 2),
+            "total_disbursed": round(self.total_disbursed, 2),
             "funding_gap": round(self.funding_gap, 2),
+            "disbursement_gap": round(self.disbursement_gap, 2),
             "coverage_pct": round(self.coverage_pct, 1),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
