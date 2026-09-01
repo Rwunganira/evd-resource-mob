@@ -4,7 +4,9 @@
 {% block content %}
 <div class="page-header">
   <h2>EVD Activity Register</h2>
-  <p class="text-muted mb-0">Government-planned preparedness activities across 7 Technical Areas</p>
+  <p class="text-muted small mb-0">The government's costed preparedness plan across 7 Technical Areas.
+    Committed &amp; Disbursed roll up from <a href="{{ url_for('evd_view.contributions_page') }}">Partner Contributions</a>;
+    enter Budget Executed here (pencil icon) as funds are spent.</p>
 </div>
 
 <!-- Summary metrics -->
@@ -95,6 +97,30 @@
   </button>
   {% endif %}
 </div>
+
+<!-- Column legend -->
+<details class="mb-3">
+  <summary class="text-muted small" style="cursor:pointer;">
+    <i class="bi bi-info-circle me-1"></i>How to read this table
+  </summary>
+  <div class="card card-body border-0 shadow-sm mt-2 small">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div><strong>Govt Cost</strong> &mdash; planned budget for the activity.</div>
+        <div><strong>Committed</strong> &mdash; total partners have pledged (from Partner Contributions).</div>
+        <div><strong>Disbursed</strong> &mdash; funds partners have actually transferred to government.</div>
+        <div><strong>Budget Executed</strong> &mdash; what government has spent (set via the pencil icon).</div>
+      </div>
+      <div class="col-md-6">
+        <div><strong>Commitment Gap</strong> &mdash; Govt Cost &minus; Committed (still to be pledged).</div>
+        <div><strong>Disbursement Gap</strong> &mdash; Govt Cost &minus; Disbursed (still to be received).</div>
+        <div><strong>Cov %</strong> &mdash; Committed &divide; Govt Cost.</div>
+        <div><strong>Exec %</strong> &mdash; Budget Executed &divide; Disbursed &mdash; spend efficiency
+          (a badge over 100% means more was spent than received).</div>
+      </div>
+    </div>
+  </div>
+</details>
 
 <!-- Activity table by Technical Area -->
 {% for ta in grouped %}
