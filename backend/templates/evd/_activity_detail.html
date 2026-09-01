@@ -1,0 +1,185 @@
+{# Expanded detail row for one GovernmentActivity: sub-activities + comments.
+   Always rendered as a single <tr> so it can hx-swap outerHTML in place. #}
+{% macro sub_badge(s) -%}
+  {% if s == 'Completed' %}bg-success
+  {%- elif s == 'In progress' %}bg-primary
+  {%- elif s == 'Blocked' %}bg-danger
+  {%- else %}bg-light text-dark border{% endif %}
+{%- endmacro %}
+{% macro impl_badge(s) -%}
+  {% if s == 'On track' %}bg-success
+  {%- elif s == 'Delayed' %}bg-warning text-dark
+  {%- elif s == 'At risk' %}bg-danger
+  {%- else %}bg-secondary{% endif %}
+{%- endmacro %}
+
+<tr id="detail-{{ a.id }}" class="detail-row">
+  <td colspan="{{ ncols }}" class="bg-light border-bottom">
+    <div class="p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <span class="fw-semibold text-muted small">
+          <i class="bi bi-list-check me-1"></i>{{ a.activity_number }} &mdash; {{ a.activity_name }}
+        </span>
+        <button class="btn btn-sm btn-link text-muted text-decoration-none p-0"
+                hx-get="{{ url_for('evd_view.activity_detail', aid=a.id) }}?collapse=1"
+                hx-target="#detail-{{ a.id }}" hx-swap="outerHTML">
+          <i class="bi bi-chevron-up me-1"></i>Collapse
+        </button>
+      </div>
+
+      <div class="row g-4">
+        {# ───────────── Sub-activities ───────────── #}
+        <div class="col-lg-6">
+          <div class="d-flex justify-content-between align-items-baseline mb-2">
+            <h6 class="mb-0">Sub-activities</h6>
+            {% set s = a.subtask_summary %}
+            {% if s.total %}
+            <span class="small text-muted">{{ s.done }}/{{ s.total }} completed ({{ s.pct }}%)</span>
+            {% endif %}
+          </div>
+          {% if s.total %}
+          <div class="progress mb-2" style="height:5px;">
+            <div class="progress-bar bg-success" style="width:{{ s.pct }}%"></div>
+          </div>
+          {% endif %}
+
+          <div class="list-group list-group-flush small">
+            {% for sub in a.sub_activities %}
+            {% if edit_sub == sub.id and can_edit %}
+            <form class="list-group-item px-0 py-2"
+                  hx-post="{{ url_for('evd_view.update_subactivity', sid=sub.id) }}"
+                  hx-target="#detail-{{ a.id }}" hx-swap="outerHTML">
+              <input name="name" class="form-control form-control-sm mb-1" value="{{ sub.name }}" required>
+              <div class="d-flex gap-1 mb-1">
+                <select name="status" class="form-select form-select-sm">
+                  {% for st in sub_statuses %}
+                  <option {% if st == sub.status %}selected{% endif %}>{{ st }}</option>
+                  {% endfor %}
+                </select>
+                <input name="notes" class="form-control form-control-sm" placeholder="notes" value="{{ sub.notes or '' }}">
+              </div>
+              <button class="btn btn-sm btn-who py-0">Save</button>
+              <a class="btn btn-sm btn-link py-0 text-muted"
+                 hx-get="{{ url_for('evd_view.activity_detail', aid=a.id) }}"
+                 hx-target="#detail-{{ a.id }}" hx-swap="outerHTML">Cancel</a>
+            </form>
+            {% else %}
+            <div class="list-group-item px-0 py-2 d-flex align-items-start gap-2">
+              <div class="flex-grow-1">
+                <div>{{ sub.name }}</div>
+                {% if sub.notes %}<div class="text-muted" style="font-size:.8em;">{{ sub.notes }}</div>{% endif %}
+              </div>
+              {% if can_edit %}
+              <select class="form-select form-select-sm w-auto"
+                      hx-post="{{ url_for('evd_view.update_subactivity', sid=sub.id) }}"
+                      hx-target="#detail-{{ a.id }}" hx-swap="outerHTML"
+                      name="status" hx-trigger="change">
+                {% for st in sub_statuses %}
+                <option {% if st == sub.status %}selected{% endif %}>{{ st }}</option>
+                {% endfor %}
+              </select>
+              <a class="btn btn-sm btn-link p-0 text-muted"
+                 hx-get="{{ url_for('evd_view.activity_detail', aid=a.id) }}?edit_sub={{ sub.id }}"
+                 hx-target="#detail-{{ a.id }}" hx-swap="outerHTML" title="Edit">
+                <i class="bi bi-pencil"></i></a>
+              <a class="btn btn-sm btn-link p-0 text-danger"
+                 hx-post="{{ url_for('evd_view.delete_subactivity', sid=sub.id) }}"
+                 hx-target="#detail-{{ a.id }}" hx-swap="outerHTML"
+                 hx-confirm="Delete this sub-activity?" title="Delete">
+                <i class="bi bi-trash"></i></a>
+              {% else %}
+              <span class="badge {{ sub_badge(sub.status) }}">{{ sub.status }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="text-muted py-2">No sub-activities yet.</div>
+            {% endfor %}
+          </div>
+
+          {% if can_edit %}
+          <form class="mt-2 d-flex gap-1"
+                hx-post="{{ url_for('evd_view.add_subactivity', aid=a.id) }}"
+                hx-target="#detail-{{ a.id }}" hx-swap="outerHTML"
+                hx-on::after-request="this.reset()">
+            <input name="name" class="form-control form-control-sm" placeholder="New sub-activity…" required>
+            <select name="status" class="form-select form-select-sm w-auto">
+              {% for st in sub_statuses %}<option>{{ st }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-sm btn-who text-nowrap"><i class="bi bi-plus-lg"></i></button>
+          </form>
+          {% endif %}
+        </div>
+
+        {# ───────────── Comments / implementation status ───────────── #}
+        <div class="col-lg-6">
+          <h6 class="mb-2">Implementation status log</h6>
+
+          {% if can_edit %}
+          <form class="mb-3"
+                hx-post="{{ url_for('evd_view.add_comment', aid=a.id) }}"
+                hx-target="#detail-{{ a.id }}" hx-swap="outerHTML"
+                hx-on::after-request="this.reset()">
+            <textarea name="body" class="form-control form-control-sm mb-1" rows="2"
+                      placeholder="Add an update…" required></textarea>
+            <div class="d-flex gap-1">
+              <select name="impl_status" class="form-select form-select-sm w-auto">
+                {% for st in impl_statuses %}<option>{{ st }}</option>{% endfor %}
+              </select>
+              <button class="btn btn-sm btn-who">Post</button>
+            </div>
+          </form>
+          {% endif %}
+
+          <div class="small">
+            {% for c in a.comments %}
+            {% if edit_comment == c.id and c.can_modify(current_user) %}
+            <form class="border-bottom pb-2 mb-2"
+                  hx-post="{{ url_for('evd_view.update_comment', cid=c.id) }}"
+                  hx-target="#detail-{{ a.id }}" hx-swap="outerHTML">
+              <textarea name="body" class="form-control form-control-sm mb-1" rows="2" required>{{ c.body }}</textarea>
+              <div class="d-flex gap-1">
+                <select name="impl_status" class="form-select form-select-sm w-auto">
+                  {% for st in impl_statuses %}
+                  <option {% if st == c.impl_status %}selected{% endif %}>{{ st }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-who py-0">Save</button>
+                <a class="btn btn-sm btn-link py-0 text-muted"
+                   hx-get="{{ url_for('evd_view.activity_detail', aid=a.id) }}"
+                   hx-target="#detail-{{ a.id }}" hx-swap="outerHTML">Cancel</a>
+              </div>
+            </form>
+            {% else %}
+            <div class="border-bottom pb-2 mb-2">
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="badge {{ impl_badge(c.impl_status) }}">{{ c.impl_status }}</span>
+                <span class="text-muted" style="font-size:.8em;">
+                  {{ c.author_name or 'Unknown' }} &middot;
+                  {{ c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '' }}
+                  {% if c.edited %}<em>(edited)</em>{% endif %}
+                </span>
+              </div>
+              <div class="mt-1" style="white-space:pre-wrap;">{{ c.body }}</div>
+              {% if c.can_modify(current_user) %}
+              <div class="mt-1">
+                <a class="btn btn-sm btn-link p-0 text-muted me-2"
+                   hx-get="{{ url_for('evd_view.activity_detail', aid=a.id) }}?edit_comment={{ c.id }}"
+                   hx-target="#detail-{{ a.id }}" hx-swap="outerHTML">edit</a>
+                <a class="btn btn-sm btn-link p-0 text-danger"
+                   hx-post="{{ url_for('evd_view.delete_comment', cid=c.id) }}"
+                   hx-target="#detail-{{ a.id }}" hx-swap="outerHTML"
+                   hx-confirm="Delete this comment?">delete</a>
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="text-muted py-2">No updates logged yet.</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </td>
+</tr>

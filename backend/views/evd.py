@@ -1,7 +1,10 @@
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
 from database import db
-from models import GovernmentActivity, PartnerContribution, Partner
+from models import (
+    GovernmentActivity, PartnerContribution, Partner,
+    SubActivity, ActivityComment,
+)
 
 evd_view_bp = Blueprint("evd_view", __name__)
 
@@ -223,3 +226,139 @@ def save_contributions_bulk():
 
     db.session.commit()
     return f'<div class="alert alert-success mt-2"><i class="bi bi-check-circle me-1"></i>{len(partners)} contributions saved</div>'
+
+
+# ── Activity detail: sub-activities + comments (HTMX) ─────────────────────────
+
+def _can_edit():
+    return current_user.is_authenticated and current_user.role in ("admin", "editor")
+
+
+def _editor_only():
+    if not _can_edit():
+        abort(403)
+
+
+def _render_detail(activity, edit_sub=None, edit_comment=None):
+    return render_template(
+        "evd/_activity_detail.html",
+        a=activity,
+        sub_statuses=SubActivity.STATUSES,
+        impl_statuses=ActivityComment.IMPL_STATUSES,
+        can_edit=_can_edit(),
+        is_admin=current_user.is_authenticated and current_user.role == "admin",
+        current_user_id=current_user.id if current_user.is_authenticated else None,
+        edit_sub=edit_sub,
+        edit_comment=edit_comment,
+        ncols=15 if _can_edit() else 14,
+    )
+
+
+@evd_view_bp.route("/evd/activities/<int:aid>/detail")
+def activity_detail(aid):
+    activity = GovernmentActivity.query.get_or_404(aid)
+    if request.args.get("collapse"):
+        ncols = 15 if _can_edit() else 14
+        return (f'<tr id="detail-{aid}" class="detail-row d-none">'
+                f'<td colspan="{ncols}" class="p-0"></td></tr>')
+    return _render_detail(
+        activity,
+        edit_sub=request.args.get("edit_sub", type=int),
+        edit_comment=request.args.get("edit_comment", type=int),
+    )
+
+
+# ---- sub-activities ----
+
+@evd_view_bp.route("/evd/activities/<int:aid>/subactivities", methods=["POST"])
+def add_subactivity(aid):
+    _editor_only()
+    activity = GovernmentActivity.query.get_or_404(aid)
+    name = (request.form.get("name") or "").strip()
+    if name:
+        status = request.form.get("status") or "Planned"
+        if status not in SubActivity.STATUSES:
+            status = "Planned"
+        last = max((s.sort_order or 0 for s in activity.sub_activities), default=0)
+        db.session.add(SubActivity(
+            government_activity_id=aid,
+            name=name,
+            status=status,
+            notes=(request.form.get("notes") or "").strip(),
+            sort_order=last + 1,
+        ))
+        db.session.commit()
+    return _render_detail(activity)
+
+
+@evd_view_bp.route("/evd/subactivities/<int:sid>/update", methods=["POST"])
+def update_subactivity(sid):
+    _editor_only()
+    sub = SubActivity.query.get_or_404(sid)
+    if "name" in request.form:
+        name = (request.form.get("name") or "").strip()
+        if name:
+            sub.name = name
+    if "status" in request.form and request.form["status"] in SubActivity.STATUSES:
+        sub.status = request.form["status"]
+    if "notes" in request.form:
+        sub.notes = (request.form.get("notes") or "").strip()
+    db.session.commit()
+    return _render_detail(sub.government_activity)
+
+
+@evd_view_bp.route("/evd/subactivities/<int:sid>/delete", methods=["POST"])
+def delete_subactivity(sid):
+    _editor_only()
+    sub = SubActivity.query.get_or_404(sid)
+    activity = sub.government_activity
+    db.session.delete(sub)
+    db.session.commit()
+    return _render_detail(activity)
+
+
+# ---- comments ----
+
+@evd_view_bp.route("/evd/activities/<int:aid>/comments", methods=["POST"])
+def add_comment(aid):
+    activity = GovernmentActivity.query.get_or_404(aid)
+    body = (request.form.get("body") or "").strip()
+    if body:
+        impl = request.form.get("impl_status") or "On track"
+        if impl not in ActivityComment.IMPL_STATUSES:
+            impl = "On track"
+        db.session.add(ActivityComment(
+            government_activity_id=aid,
+            author_id=current_user.id,
+            author_name=current_user.name,
+            body=body,
+            impl_status=impl,
+        ))
+        db.session.commit()
+    return _render_detail(activity)
+
+
+@evd_view_bp.route("/evd/comments/<int:cid>/update", methods=["POST"])
+def update_comment(cid):
+    c = ActivityComment.query.get_or_404(cid)
+    if not c.can_modify(current_user):
+        abort(403)
+    body = (request.form.get("body") or "").strip()
+    if body:
+        c.body = body
+    if request.form.get("impl_status") in ActivityComment.IMPL_STATUSES:
+        c.impl_status = request.form["impl_status"]
+    c.edited = True
+    db.session.commit()
+    return _render_detail(c.government_activity)
+
+
+@evd_view_bp.route("/evd/comments/<int:cid>/delete", methods=["POST"])
+def delete_comment(cid):
+    c = ActivityComment.query.get_or_404(cid)
+    if not c.can_modify(current_user):
+        abort(403)
+    activity = c.government_activity
+    db.session.delete(c)
+    db.session.commit()
+    return _render_detail(activity)

@@ -106,7 +106,9 @@ def list_activities():
 def get_activity(aid):
     a = GovernmentActivity.query.get_or_404(aid)
     d = a.to_dict()
-    d["contributions"] = [c.to_dict() for c in a.partner_contributions]
+    d["contributions"]   = [c.to_dict() for c in a.partner_contributions]
+    d["sub_activities"]   = [s.to_dict() for s in a.sub_activities]
+    d["comments"]         = [c.to_dict() for c in a.comments]
     return _ok(d)
 
 

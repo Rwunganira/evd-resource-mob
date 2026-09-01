@@ -133,6 +133,7 @@
     <table class="table table-sm table-hover align-middle mb-0">
       <thead>
         <tr>
+          <th style="width:28px"></th>
           <th style="width:60px">#</th>
           <th>Activity</th>
           <th style="width:100px">Sub-section</th>
@@ -150,13 +151,38 @@
         </tr>
       </thead>
       <tbody>
+        {% set ncols = 15 if can_edit else 14 %}
         {% for a in ta.activities %}
         {% set cov = a.coverage_pct %}
         {% set exec = a.execution_pct %}
+        {% set st = a.subtask_summary %}
         <tr class="activity-row" data-ta="{{ a.technical_area_number }}" data-status="{{ a.status }}"
             data-name="{{ a.activity_name | lower }}">
+          <td class="text-center">
+            <button class="btn btn-sm btn-link p-0 text-muted"
+                    hx-get="{{ url_for('evd_view.activity_detail', aid=a.id) }}"
+                    hx-target="#detail-{{ a.id }}" hx-swap="outerHTML"
+                    title="Sub-activities & status log">
+              <i class="bi bi-chevron-down"></i>
+            </button>
+          </td>
           <td class="text-muted small">{{ a.activity_number }}</td>
-          <td>{{ a.activity_name }}</td>
+          <td>
+            {{ a.activity_name }}
+            {% if st.total or a.comment_count or a.latest_impl_status %}
+            <div class="small text-muted mt-1">
+              {% if st.total %}<i class="bi bi-list-check me-1"></i>{{ st.done }}/{{ st.total }}{% endif %}
+              {% if a.comment_count %}<i class="bi bi-chat-left-text ms-2 me-1"></i>{{ a.comment_count }}{% endif %}
+              {% if a.latest_impl_status %}
+              <span class="badge ms-2
+                {%- if a.latest_impl_status == 'On track' %} bg-success
+                {%- elif a.latest_impl_status == 'Delayed' %} bg-warning text-dark
+                {%- elif a.latest_impl_status == 'At risk' %} bg-danger
+                {%- else %} bg-secondary{% endif %}">{{ a.latest_impl_status }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </td>
           <td class="small text-muted">{{ a.sub_section }}</td>
           <td class="text-end">${{ "{:,.0f}".format(a.total_cost_usd or 0) }}</td>
           <td class="text-end text-success">${{ "{:,.0f}".format(a.total_committed) }}</td>
@@ -210,6 +236,7 @@
           </td>
           {% endif %}
         </tr>
+        <tr id="detail-{{ a.id }}" class="detail-row d-none"><td colspan="{{ ncols }}" class="p-0"></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -369,7 +396,13 @@ function applyFilters() {
     const matchTA     = !ta     || row.dataset.ta     === ta;
     const matchStatus = !status || row.dataset.status === status;
     const matchSearch = !search || row.dataset.name.includes(search);
-    row.style.display = (matchTA && matchStatus && matchSearch) ? '' : 'none';
+    const show = matchTA && matchStatus && matchSearch;
+    row.style.display = show ? '' : 'none';
+    // keep each activity's detail row in lockstep with it
+    const detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row')) {
+      detail.style.display = show ? '' : 'none';
+    }
   });
 
   // Hide section headers that have no visible rows
