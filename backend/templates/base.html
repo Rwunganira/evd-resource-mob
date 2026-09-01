@@ -17,6 +17,10 @@
     .sidebar .nav-link:hover, .sidebar .nav-link.active {
       background:var(--who-blue); color:white;
     }
+    .sidebar .nav-section {
+      color:#6f9fce; font-size:.66rem; font-weight:700; letter-spacing:.08em;
+      text-transform:uppercase; padding:14px 20px 4px;
+    }
     .sidebar-brand {
       color:white; text-align:center; padding:10px 20px 20px;
       border-bottom:1px solid #1a5276; margin-bottom:10px;
@@ -38,30 +42,11 @@
       <div style="font-size:.72rem;color:#a0c4e8;">EVD Response — DRC</div>
     </div>
     <nav class="nav flex-column">
+      <div class="nav-section">Resource Mobilization</div>
       <a class="nav-link {% if active_page == 'partners' %}active{% endif %}"
          href="{{ url_for('partners_view.list_partners') }}">
         <i class="bi bi-people me-2"></i>Partners
       </a>
-      <a class="nav-link {% if active_page == 'resources' %}active{% endif %}"
-         href="{{ url_for('resources_view.list_resources') }}">
-        <i class="bi bi-box-seam me-2"></i>Resources
-      </a>
-      <a class="nav-link {% if active_page == 'activities' %}active{% endif %}"
-         href="{{ url_for('activities_view.list_activities') }}">
-        <i class="bi bi-geo-alt me-2"></i>Activities
-      </a>
-      <a class="nav-link {% if active_page == 'sitreps' %}active{% endif %}"
-         href="{{ url_for('sitreps_view.list_sitreps') }}">
-        <i class="bi bi-file-text me-2"></i>Situation Reports
-      </a>
-      {% if current_user.is_authenticated and current_user.role == 'admin' %}
-      <hr style="border-color:#1a5276;margin:10px 20px;">
-      <a class="nav-link {% if active_page == 'users' %}active{% endif %}"
-         href="{{ url_for('users_view.list_users') }}">
-        <i class="bi bi-shield-lock me-2"></i>Users
-      </a>
-      {% endif %}
-      <hr style="border-color:#1a5276;margin:10px 20px;">
       <a class="nav-link {% if active_page == 'evd_activities' %}active{% endif %}"
          href="{{ url_for('evd_view.activities_page') }}">
         <i class="bi bi-list-check me-2"></i>EVD Activities
@@ -70,10 +55,33 @@
          href="{{ url_for('evd_view.contributions_page') }}">
         <i class="bi bi-cash-stack me-2"></i>Partner Contributions
       </a>
-      <hr style="border-color:#1a5276;margin:10px 20px;">
+
+      <div class="nav-section">Outbreak Response</div>
+      <a class="nav-link {% if active_page == 'sitreps' %}active{% endif %}"
+         href="{{ url_for('sitreps_view.list_sitreps') }}">
+        <i class="bi bi-file-text me-2"></i>Situation Reports
+      </a>
+      <a class="nav-link {% if active_page == 'activities' %}active{% endif %}"
+         href="{{ url_for('activities_view.list_activities') }}">
+        <i class="bi bi-geo-alt me-2"></i>Field Activities
+      </a>
+      <a class="nav-link {% if active_page == 'resources' %}active{% endif %}"
+         href="{{ url_for('resources_view.list_resources') }}">
+        <i class="bi bi-box-seam me-2"></i>Resources
+      </a>
+
+      <div class="nav-section">Analysis</div>
       <a class="nav-link" href="{{ streamlit_url }}" target="_blank">
         <i class="bi bi-bar-chart me-2"></i>Visualizations ↗
       </a>
+
+      {% if current_user.is_authenticated and current_user.role == 'admin' %}
+      <div class="nav-section">Administration</div>
+      <a class="nav-link {% if active_page == 'users' %}active{% endif %}"
+         href="{{ url_for('users_view.list_users') }}">
+        <i class="bi bi-shield-lock me-2"></i>Users
+      </a>
+      {% endif %}
     </nav>
 
     {% if current_user.is_authenticated %}
