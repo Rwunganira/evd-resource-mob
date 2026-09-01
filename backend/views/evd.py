@@ -38,8 +38,10 @@ def activities_page():
 
     total_cost      = sum(a.total_cost_usd or 0 for a in activities)
     total_committed = sum(a.total_committed for a in activities)
+    total_executed  = sum(a.budget_executed_usd or 0 for a in activities)
     total_gap       = max(0, total_cost - total_committed)
     coverage        = round(min(100, total_committed / total_cost * 100), 1) if total_cost else 0
+    execution_rate  = round(min(100, total_executed / total_cost * 100), 1) if total_cost else 0
 
     return render_template(
         "evd/activities.html",
@@ -48,8 +50,10 @@ def activities_page():
         technical_areas=_TA,
         total_cost=total_cost,
         total_committed=total_committed,
+        total_executed=total_executed,
         total_gap=total_gap,
         coverage=coverage,
+        execution_rate=execution_rate,
         can_edit=current_user.role in ("admin", "editor"),
     )
 

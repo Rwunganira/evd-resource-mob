@@ -117,6 +117,7 @@ def create_activity():
         sub_section=body.get("sub_section", ""),
         activity_name=name,
         total_cost_usd=float(body.get("total_cost_usd") or 0),
+        budget_executed_usd=float(body.get("budget_executed_usd") or 0),
         status=body.get("status", "Planned"),
         priority=body.get("priority", "Medium"),
         notes=body.get("notes", ""),
@@ -138,6 +139,7 @@ def update_activity(aid):
     if "sub_section"           in body: a.sub_section           = body["sub_section"]
     if "activity_name"         in body: a.activity_name         = body["activity_name"]
     if "total_cost_usd"        in body: a.total_cost_usd        = float(body["total_cost_usd"] or 0)
+    if "budget_executed_usd"   in body: a.budget_executed_usd   = float(body["budget_executed_usd"] or 0)
     if "status"                in body: a.status                = body["status"]
     if "priority"              in body: a.priority              = body["priority"]
     if "notes"                 in body: a.notes                 = body["notes"]

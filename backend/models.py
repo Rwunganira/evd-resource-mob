@@ -297,6 +297,7 @@ class GovernmentActivity(db.Model):
     sub_section           = db.Column(db.String(120))
     activity_name         = db.Column(db.Text, nullable=False)
     total_cost_usd        = db.Column(db.Float, default=0)
+    budget_executed_usd   = db.Column(db.Float, default=0)
     status                = db.Column(db.String(50), default="Planned")
     priority              = db.Column(db.String(20), default="Medium")
     notes                 = db.Column(db.Text)
@@ -318,6 +319,14 @@ class GovernmentActivity(db.Model):
             return 0
         return min(100, self.total_committed / self.total_cost_usd * 100)
 
+    @property
+    def execution_pct(self):
+        """Budget executed as a percentage of the government budget (uncapped —
+        a value above 100 means the activity is overspent)."""
+        if not self.total_cost_usd:
+            return 0
+        return (self.budget_executed_usd or 0) / self.total_cost_usd * 100
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -327,6 +336,8 @@ class GovernmentActivity(db.Model):
             "sub_section": self.sub_section,
             "activity_name": self.activity_name,
             "total_cost_usd": self.total_cost_usd or 0,
+            "budget_executed_usd": self.budget_executed_usd or 0,
+            "execution_pct": round(self.execution_pct, 1),
             "status": self.status,
             "priority": self.priority,
             "notes": self.notes,

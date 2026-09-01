@@ -33,6 +33,19 @@ with app.app_context():
     db.create_all()
     print("Database tables ready.")
 
+    # ── Schema migration: add government_activities.budget_executed_usd ────────
+    insp = inspect(db.engine)
+    if "government_activities" in insp.get_table_names():
+        ga_cols = [c["name"] for c in insp.get_columns("government_activities")]
+        if "budget_executed_usd" not in ga_cols:
+            print("Adding government_activities.budget_executed_usd …")
+            db.session.execute(text(
+                "ALTER TABLE government_activities "
+                "ADD COLUMN budget_executed_usd FLOAT DEFAULT 0"
+            ))
+            db.session.commit()
+            print("Column added.")
+
     # ── Admin user ────────────────────────────────────────────────────────────
     admin_email = "samuel.rwunganira@gmail.com"
     admin = User.query.filter_by(email=admin_email).first()
