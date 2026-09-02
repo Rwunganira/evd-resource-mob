@@ -5,8 +5,8 @@
 <div class="page-header d-flex justify-content-between align-items-start">
   <div>
     <h2>EVD Partner Contributions</h2>
-    <p class="text-muted small mb-0">Pick an activity, then record what each partner commits, has available,
-      still needs to mobilize, and has disbursed. These roll up into the EVD Activities table.</p>
+    <p class="text-muted small mb-0">Pick an activity, then record what each partner has <strong>committed</strong>
+      and how much it has <strong>availed</strong> (released to government). These roll up into the EVD Activities table.</p>
   </div>
 </div>
 
@@ -73,30 +73,30 @@
       </div>
       <div class="card-body">
         <!-- Activity cost summary — HTMX live-updates on input changes -->
-        <div class="row g-2 mb-3" id="liveTotals"
+        <div class="row row-cols-2 row-cols-md-5 g-2 mb-3" id="liveTotals"
              {% if can_edit %}
              hx-post="/evd/contributions/preview"
              hx-trigger="input delay:300ms from:#bulkForm"
              hx-include="#bulkForm"
              hx-swap="innerHTML"
              {% endif %}>
-          <div class="col-md-3 text-center">
+          <div class="col text-center">
             <div class="small text-muted">Govt Cost</div>
             <div class="fw-bold">${{ "{:,.0f}".format(selected.total_cost_usd or 0) }}</div>
           </div>
-          <div class="col-md-3 text-center">
+          <div class="col text-center">
             <div class="small text-muted">Committed</div>
-            <div class="fw-bold text-success">
-              ${{ "{:,.0f}".format(selected.total_committed) }}
-            </div>
+            <div class="fw-bold text-success">${{ "{:,.0f}".format(selected.total_committed) }}</div>
           </div>
-          <div class="col-md-3 text-center">
-            <div class="small text-muted">Gap</div>
-            <div class="fw-bold text-danger">
-              ${{ "{:,.0f}".format(selected.funding_gap) }}
-            </div>
+          <div class="col text-center">
+            <div class="small text-muted">Budget Availed</div>
+            <div class="fw-bold text-success">${{ "{:,.0f}".format(selected.total_disbursed) }}</div>
           </div>
-          <div class="col-md-3 text-center">
+          <div class="col text-center">
+            <div class="small text-muted">Commitment Gap</div>
+            <div class="fw-bold text-danger">${{ "{:,.0f}".format(selected.funding_gap) }}</div>
+          </div>
+          <div class="col text-center">
             <div class="small text-muted">Coverage</div>
             <div class="fw-bold {% if selected.coverage_pct >= 75 %}text-success{% elif selected.coverage_pct >= 40 %}text-warning{% else %}text-danger{% endif %}">
               {{ "%.1f"|format(selected.coverage_pct) }}%
@@ -114,12 +114,9 @@
             <table class="table table-sm align-middle">
               <thead>
                 <tr>
-                  <th style="width:140px">Partner</th>
-                  <th class="text-end" style="width:130px">Committed (USD)</th>
-                  <th class="text-end" style="width:130px">Available (USD)</th>
-                  <th class="text-end" style="width:130px">To Mobilize (USD)</th>
-                  <th class="text-end" style="width:130px">Disbursed (USD)</th>
-                  <th style="width:120px">Status</th>
+                  <th style="width:200px">Partner</th>
+                  <th class="text-end" style="width:170px">Committed (USD)</th>
+                  <th class="text-end" style="width:170px">Budget Availed (USD)</th>
                 </tr>
               </thead>
               <tbody>
@@ -134,25 +131,8 @@
                   </td>
                   <td>
                     <input type="number" class="form-control form-control-sm text-end"
-                           name="available_{{ pname }}" min="0" step="1"
-                           value="{{ c.amount_available_usd | int if c else 0 }}">
-                  </td>
-                  <td>
-                    <input type="number" class="form-control form-control-sm text-end"
-                           name="mobilize_{{ pname }}" min="0" step="1"
-                           value="{{ c.amount_to_mobilize_usd | int if c else 0 }}">
-                  </td>
-                  <td>
-                    <input type="number" class="form-control form-control-sm text-end"
                            name="disbursed_{{ pname }}" min="0" step="1"
                            value="{{ c.amount_disbursed_usd | int if c else 0 }}">
-                  </td>
-                  <td>
-                    <select class="form-select form-select-sm" name="status_{{ pname }}">
-                      {% for s in ['Committed','Available','Disbursed','Pledged','Conditional'] %}
-                      <option {{ 'selected' if c and c.status == s else '' }}>{{ s }}</option>
-                      {% endfor %}
-                    </select>
                   </td>
                 </tr>
                 {% endfor %}
@@ -179,9 +159,7 @@
               <tr>
                 <th>Partner</th>
                 <th class="text-end">Committed</th>
-                <th class="text-end">Available</th>
-                <th class="text-end">Disbursed</th>
-                <th>Status</th>
+                <th class="text-end">Budget Availed</th>
               </tr>
             </thead>
             <tbody>
@@ -189,9 +167,7 @@
               <tr>
                 <td>{{ c.partner_name }}</td>
                 <td class="text-end">${{ "{:,.0f}".format(c.amount_committed_usd or 0) }}</td>
-                <td class="text-end">${{ "{:,.0f}".format(c.amount_available_usd or 0) }}</td>
                 <td class="text-end">${{ "{:,.0f}".format(c.amount_disbursed_usd or 0) }}</td>
-                <td>{{ c.status }}</td>
               </tr>
               {% endfor %}
             </tbody>

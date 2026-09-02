@@ -154,25 +154,32 @@ def preview_contributions():
     total_committed = sum(
         float(request.form.get(f"committed_{pname}") or 0) for pname in partners
     )
+    total_availed = sum(
+        float(request.form.get(f"disbursed_{pname}") or 0) for pname in partners
+    )
     total_cost = activity.total_cost_usd or 0
     gap        = max(0, total_cost - total_committed)
     coverage   = min(100, total_committed / total_cost * 100) if total_cost else 0
     cov_class  = "text-success" if coverage >= 75 else ("text-warning" if coverage >= 40 else "text-danger")
 
     return (
-        f'<div class="col-md-3 text-center">'
+        f'<div class="col text-center">'
         f'<div class="small text-muted">Govt Cost</div>'
         f'<div class="fw-bold">${total_cost:,.0f}</div>'
         f'</div>'
-        f'<div class="col-md-3 text-center">'
+        f'<div class="col text-center">'
         f'<div class="small text-muted">Committed</div>'
         f'<div class="fw-bold text-success">${total_committed:,.0f}</div>'
         f'</div>'
-        f'<div class="col-md-3 text-center">'
-        f'<div class="small text-muted">Gap</div>'
+        f'<div class="col text-center">'
+        f'<div class="small text-muted">Budget Availed</div>'
+        f'<div class="fw-bold text-success">${total_availed:,.0f}</div>'
+        f'</div>'
+        f'<div class="col text-center">'
+        f'<div class="small text-muted">Commitment Gap</div>'
         f'<div class="fw-bold text-danger">${gap:,.0f}</div>'
         f'</div>'
-        f'<div class="col-md-3 text-center">'
+        f'<div class="col text-center">'
         f'<div class="small text-muted">Coverage</div>'
         f'<div class="fw-bold {cov_class}">{coverage:.1f}%</div>'
         f'</div>'
@@ -196,32 +203,24 @@ def save_contributions_bulk():
     for p in partners:
         pname     = p.name
         committed = float(request.form.get(f"committed_{pname}") or 0)
-        available = float(request.form.get(f"available_{pname}") or 0)
-        mobilize  = float(request.form.get(f"mobilize_{pname}") or 0)
-        disbursed = float(request.form.get(f"disbursed_{pname}") or 0)
-        status    = request.form.get(f"status_{pname}") or "Committed"
+        availed   = float(request.form.get(f"disbursed_{pname}") or 0)
 
         existing = PartnerContribution.query.filter_by(
             government_activity_id=aid, partner_name=pname
         ).first()
 
         if existing:
-            existing.amount_committed_usd   = committed
-            existing.amount_available_usd   = available
-            existing.amount_to_mobilize_usd = mobilize
-            existing.amount_disbursed_usd   = disbursed
-            existing.status                 = status
+            existing.amount_committed_usd = committed
+            existing.amount_disbursed_usd = availed
         else:
             db.session.add(PartnerContribution(
                 government_activity_id=aid,
                 partner_name=pname,
                 partner_id=p.id,
                 amount_committed_usd=committed,
-                amount_available_usd=available,
-                amount_to_mobilize_usd=mobilize,
-                amount_disbursed_usd=disbursed,
+                amount_disbursed_usd=availed,
                 modality="Direct Implementation",
-                status=status,
+                status="Committed",
             ))
 
     db.session.commit()

@@ -12,7 +12,7 @@
             {% if selected and selected.id == a.id %}bg-primary text-white{% else %}text-dark{% endif %}">
     <div class="small fw-semibold">{{ a.activity_number }} {{ a.activity_name[:70] }}</div>
     <div class="small {% if selected and selected.id == a.id %}text-white-50{% else %}text-muted{% endif %}">
-      Gap: ${{ "{:,.0f}".format(a.funding_gap) }}
+      Commitment gap: ${{ "{:,.0f}".format(a.funding_gap) }}
       &nbsp;·&nbsp;{{ "%.0f"|format(a.coverage_pct) }}% covered
     </div>
   </a>
