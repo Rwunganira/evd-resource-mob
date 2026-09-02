@@ -91,10 +91,10 @@ with st.sidebar:
         "<div style='font-size:.72rem;color:#a0c4e8;'>EVD Preparedness</div></div>"
         "<hr style='border-color:#1a5276;'>", unsafe_allow_html=True)
     page = st.radio("Navigation", [
+        "EVD Coverage Analysis",
+        "EVD Funding Matrix",
         "Overview",
-        "Budget Analysis",
         "Implementation Status",
-        "Partner Funding Matrix",
     ], label_visibility="collapsed")
     st.markdown("<hr style='border-color:#1a5276;'>", unsafe_allow_html=True)
     if st.button("🔄 Refresh data", width="stretch"):
@@ -203,8 +203,8 @@ if page == "Overview":
 # ═════════════════════════════════════════════════════════════════════════════
 # BUDGET ANALYSIS
 # ═════════════════════════════════════════════════════════════════════════════
-elif page == "Budget Analysis":
-    st.title("Budget Analysis")
+elif page == "EVD Coverage Analysis":
+    st.title("EVD Coverage Analysis")
     summary, err = api_get("evd/summary")
     guard(err)
     df, flat = load_activities()
@@ -417,8 +417,8 @@ elif page == "Implementation Status":
 # ═════════════════════════════════════════════════════════════════════════════
 # PARTNER FUNDING MATRIX
 # ═════════════════════════════════════════════════════════════════════════════
-elif page == "Partner Funding Matrix":
-    st.title("Partner Funding Matrix")
+elif page == "EVD Funding Matrix":
+    st.title("EVD Funding Matrix")
     st.caption("Partner amounts per government activity. Enter these in the Flask portal "
                "(/evd/contributions).")
 
