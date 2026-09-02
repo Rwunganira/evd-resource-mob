@@ -13,8 +13,12 @@
 {% endmacro %}
 
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center">
-  <h2 class="mb-0"><i class="bi bi-geo-alt me-2"></i>Activities</h2>
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h2 class="mb-1"><i class="bi bi-geo-alt me-2"></i>Field Activities</h2>
+    <p class="text-muted small mb-0">Partner field activities &mdash; who is doing what, where and when (4W).
+      Separate from the government EVD Activity register.</p>
+  </div>
   <a href="{{ url_for('activities_view.new_activity') }}" class="btn btn-who">
     <i class="bi bi-plus-circle me-1"></i>Add Activity
   </a>

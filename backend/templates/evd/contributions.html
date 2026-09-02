@@ -5,7 +5,8 @@
 <div class="page-header d-flex justify-content-between align-items-start">
   <div>
     <h2>EVD Partner Contributions</h2>
-    <p class="text-muted mb-0">Record partner commitments per government activity</p>
+    <p class="text-muted small mb-0">Pick an activity, then record what each partner has <strong>committed</strong>
+      and how much it has <strong>availed</strong> (released to government). These roll up into the EVD Activities table.</p>
   </div>
 </div>
 
@@ -37,29 +38,19 @@
         <strong>Select Activity</strong>
       </div>
       <div class="card-body p-0">
-        <input type="text" id="actSearch" class="form-control form-control-sm border-0 border-bottom rounded-0"
-               placeholder="Search activities…">
-        <div style="max-height:500px;overflow-y:auto;">
-          {% set prev_ta = namespace(value=None) %}
-          {% for a in activities %}
-          {% if a.technical_area_number != prev_ta.value %}
-          {% set prev_ta.value = a.technical_area_number %}
-          <div class="px-3 py-1 small fw-bold text-white"
-               style="background:var(--who-dark);font-size:.72rem;">
-            TA{{ a.technical_area_number }}: {{ a.technical_area }}
-          </div>
-          {% endif %}
-          <a href="/evd/contributions?activity_id={{ a.id }}"
-             class="d-block px-3 py-2 text-decoration-none border-bottom act-item
-                    {% if selected and selected.id == a.id %}active bg-primary text-white{% else %}text-dark{% endif %}"
-             data-name="{{ a.activity_name | lower }}">
-            <div class="small fw-semibold">{{ a.activity_number }} {{ a.activity_name[:70] }}</div>
-            <div class="small {% if selected and selected.id == a.id %}text-white-50{% else %}text-muted{% endif %}">
-              Gap: ${{ "{:,.0f}".format(a.funding_gap) }}
-              &nbsp;·&nbsp;{{ "%.0f"|format(a.coverage_pct) }}% covered
-            </div>
-          </a>
-          {% endfor %}
+        <input type="hidden" name="selected_activity_id"
+               value="{{ selected.id if selected else '' }}">
+        <input type="text" name="q" value="{{ q }}"
+               class="form-control form-control-sm border-0 border-bottom rounded-0"
+               placeholder="Search activities…"
+               autocomplete="off"
+               hx-get="/evd/contributions/search"
+               hx-trigger="input changed delay:300ms"
+               hx-target="#activityList"
+               hx-swap="innerHTML"
+               hx-include="[name='selected_activity_id']">
+        <div id="activityList" style="max-height:500px;overflow-y:auto;">
+          {% include "evd/_activity_list.html" %}
         </div>
       </div>
     </div>
@@ -81,45 +72,51 @@
         </div>
       </div>
       <div class="card-body">
-        <!-- Activity cost summary -->
-        <div class="row g-2 mb-3">
-          <div class="col-md-3 text-center">
+        <!-- Activity cost summary — HTMX live-updates on input changes -->
+        <div class="row row-cols-2 row-cols-md-5 g-2 mb-3" id="liveTotals"
+             {% if can_edit %}
+             hx-post="/evd/contributions/preview"
+             hx-trigger="input delay:300ms from:#bulkForm"
+             hx-include="#bulkForm"
+             hx-swap="innerHTML"
+             {% endif %}>
+          <div class="col text-center">
             <div class="small text-muted">Govt Cost</div>
             <div class="fw-bold">${{ "{:,.0f}".format(selected.total_cost_usd or 0) }}</div>
           </div>
-          <div class="col-md-3 text-center">
+          <div class="col text-center">
             <div class="small text-muted">Committed</div>
-            <div class="fw-bold text-success" id="liveTotalCommitted">
-              ${{ "{:,.0f}".format(selected.total_committed) }}
-            </div>
+            <div class="fw-bold text-success">${{ "{:,.0f}".format(selected.total_committed) }}</div>
           </div>
-          <div class="col-md-3 text-center">
-            <div class="small text-muted">Gap</div>
-            <div class="fw-bold text-danger" id="liveTotalGap">
-              ${{ "{:,.0f}".format(selected.funding_gap) }}
-            </div>
+          <div class="col text-center">
+            <div class="small text-muted">Budget Availed</div>
+            <div class="fw-bold text-success">${{ "{:,.0f}".format(selected.total_disbursed) }}</div>
           </div>
-          <div class="col-md-3 text-center">
+          <div class="col text-center">
+            <div class="small text-muted">Commitment Gap</div>
+            <div class="fw-bold text-danger">${{ "{:,.0f}".format(selected.funding_gap) }}</div>
+          </div>
+          <div class="col text-center">
             <div class="small text-muted">Coverage</div>
-            <div class="fw-bold {% if selected.coverage_pct >= 75 %}text-success{% elif selected.coverage_pct >= 40 %}text-warning{% else %}text-danger{% endif %}" id="liveCovPct">
+            <div class="fw-bold {% if selected.coverage_pct >= 75 %}text-success{% elif selected.coverage_pct >= 40 %}text-warning{% else %}text-danger{% endif %}">
               {{ "%.1f"|format(selected.coverage_pct) }}%
             </div>
           </div>
         </div>
 
         {% if can_edit %}
-        <form id="bulkForm">
+        <form id="bulkForm"
+              hx-post="/evd/contributions/bulk"
+              hx-target="#saveMsg"
+              hx-swap="innerHTML">
           <input type="hidden" name="government_activity_id" value="{{ selected.id }}">
           <div class="table-responsive">
             <table class="table table-sm align-middle">
               <thead>
                 <tr>
-                  <th style="width:140px">Partner</th>
-                  <th class="text-end" style="width:130px">Committed (USD)</th>
-                  <th class="text-end" style="width:130px">Available (USD)</th>
-                  <th class="text-end" style="width:130px">To Mobilize (USD)</th>
-                  <th class="text-end" style="width:130px">Disbursed (USD)</th>
-                  <th style="width:120px">Status</th>
+                  <th style="width:200px">Partner</th>
+                  <th class="text-end" style="width:170px">Committed (USD)</th>
+                  <th class="text-end" style="width:170px">Budget Availed (USD)</th>
                 </tr>
               </thead>
               <tbody>
@@ -128,32 +125,14 @@
                 <tr>
                   <td class="fw-semibold small">{{ pname }}</td>
                   <td>
-                    <input type="number" class="form-control form-control-sm text-end committed-input"
+                    <input type="number" class="form-control form-control-sm text-end"
                            name="committed_{{ pname }}" min="0" step="1"
-                           value="{{ c.amount_committed_usd | int if c else 0 }}"
-                           data-partner="{{ pname }}">
-                  </td>
-                  <td>
-                    <input type="number" class="form-control form-control-sm text-end"
-                           name="available_{{ pname }}" min="0" step="1"
-                           value="{{ c.amount_available_usd | int if c else 0 }}">
-                  </td>
-                  <td>
-                    <input type="number" class="form-control form-control-sm text-end"
-                           name="mobilize_{{ pname }}" min="0" step="1"
-                           value="{{ c.amount_to_mobilize_usd | int if c else 0 }}">
+                           value="{{ c.amount_committed_usd | int if c else 0 }}">
                   </td>
                   <td>
                     <input type="number" class="form-control form-control-sm text-end"
                            name="disbursed_{{ pname }}" min="0" step="1"
                            value="{{ c.amount_disbursed_usd | int if c else 0 }}">
-                  </td>
-                  <td>
-                    <select class="form-select form-select-sm" name="status_{{ pname }}">
-                      {% for s in ['Committed','Available','Disbursed','Pledged','Conditional'] %}
-                      <option {{ 'selected' if c and c.status == s else '' }}>{{ s }}</option>
-                      {% endfor %}
-                    </select>
                   </td>
                 </tr>
                 {% endfor %}
@@ -164,14 +143,14 @@
           <div class="d-flex justify-content-between align-items-center mt-2">
             <div class="text-muted small">
               Leave <strong>0</strong> for partners not contributing to this activity.
-              Rows with 0 committed will be skipped.
             </div>
             <button type="submit" class="btn btn-who">
               <i class="bi bi-save me-1"></i>Save All Changes
+              <span class="htmx-indicator spinner-border spinner-border-sm ms-1" aria-hidden="true"></span>
             </button>
           </div>
 
-          <div id="saveMsg" class="mt-2 d-none"></div>
+          <div id="saveMsg" class="mt-2"></div>
         </form>
         {% else %}
         <div class="table-responsive">
@@ -180,9 +159,7 @@
               <tr>
                 <th>Partner</th>
                 <th class="text-end">Committed</th>
-                <th class="text-end">Available</th>
-                <th class="text-end">Disbursed</th>
-                <th>Status</th>
+                <th class="text-end">Budget Availed</th>
               </tr>
             </thead>
             <tbody>
@@ -190,9 +167,7 @@
               <tr>
                 <td>{{ c.partner_name }}</td>
                 <td class="text-end">${{ "{:,.0f}".format(c.amount_committed_usd or 0) }}</td>
-                <td class="text-end">${{ "{:,.0f}".format(c.amount_available_usd or 0) }}</td>
                 <td class="text-end">${{ "{:,.0f}".format(c.amount_disbursed_usd or 0) }}</td>
-                <td>{{ c.status }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -209,79 +184,4 @@
     {% endif %}
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Activity search filter
-document.getElementById('actSearch').addEventListener('input', function() {
-  const q = this.value.toLowerCase();
-  document.querySelectorAll('.act-item').forEach(el => {
-    el.style.display = el.dataset.name.includes(q) ? '' : 'none';
-  });
-});
-
-{% if can_edit and selected %}
-const activityCost = {{ selected.total_cost_usd or 0 }};
-
-// Live totals
-function updateLiveTotals() {
-  let total = 0;
-  document.querySelectorAll('.committed-input').forEach(inp => {
-    total += parseFloat(inp.value) || 0;
-  });
-  const gap = Math.max(0, activityCost - total);
-  const cov = activityCost > 0 ? Math.min(100, total / activityCost * 100) : 0;
-  document.getElementById('liveTotalCommitted').textContent = '$' + total.toLocaleString('en-US', {maximumFractionDigits:0});
-  document.getElementById('liveTotalGap').textContent       = '$' + gap.toLocaleString('en-US', {maximumFractionDigits:0});
-  document.getElementById('liveCovPct').textContent         = cov.toFixed(1) + '%';
-}
-document.querySelectorAll('.committed-input').forEach(i => i.addEventListener('input', updateLiveTotals));
-
-// Bulk save
-document.getElementById('bulkForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const aid  = this.querySelector('[name="government_activity_id"]').value;
-  const partners = {{ partners | tojson }};
-  const contributions = [];
-
-  for (const p of partners) {
-    const committed = parseFloat(this.querySelector(`[name="committed_${p}"]`)?.value) || 0;
-    if (committed === 0) {
-      const avail = parseFloat(this.querySelector(`[name="available_${p}"]`)?.value) || 0;
-      if (avail === 0) continue;   // skip entirely-zero rows
-    }
-    contributions.push({
-      partner_name:           p,
-      amount_committed_usd:   parseFloat(this.querySelector(`[name="committed_${p}"]`)?.value) || 0,
-      amount_available_usd:   parseFloat(this.querySelector(`[name="available_${p}"]`)?.value) || 0,
-      amount_to_mobilize_usd: parseFloat(this.querySelector(`[name="mobilize_${p}"]`)?.value) || 0,
-      amount_disbursed_usd:   parseFloat(this.querySelector(`[name="disbursed_${p}"]`)?.value) || 0,
-      status: this.querySelector(`[name="status_${p}"]`)?.value || 'Committed',
-    });
-  }
-
-  const msgEl = document.getElementById('saveMsg');
-  try {
-    const r = await fetch('/api/evd/contributions/bulk', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ government_activity_id: parseInt(aid), contributions }),
-    });
-    const j = await r.json();
-    if (j.status === 'success') {
-      msgEl.className = 'mt-2 alert alert-success';
-      msgEl.textContent = j.message;
-    } else {
-      msgEl.className = 'mt-2 alert alert-danger';
-      msgEl.textContent = 'Error: ' + j.message;
-    }
-  } catch(err) {
-    msgEl.className = 'mt-2 alert alert-danger';
-    msgEl.textContent = 'Network error: ' + err.message;
-  }
-  msgEl.classList.remove('d-none');
-});
-{% endif %}
-</script>
 {% endblock %}

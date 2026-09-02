@@ -1,1041 +1,500 @@
 """
-WHO EVD Partner Resource Mobilization Dashboard
-Run: streamlit run dashboard.py
+WHO EVD Preparedness — Activity Implementation & Budget Dashboard
+
+Read-only analytics over the EVD Activity Register. All data entry is done in
+the Flask portal (/evd/activities, /evd/contributions).
+
+Run:  streamlit run dashboard.py
+Env:  FLASK_URL  (default http://localhost:5000)
 """
 import io
-import requests
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
+import os
 from datetime import date, datetime
 
-import os
-_flask_url = os.getenv("FLASK_URL", "http://localhost:5000").rstrip("/")
-API_BASE = f"{_flask_url}/api"
+import pandas as pd
+import plotly.graph_objects as go
+import requests
+import streamlit as st
 
-WHO_BLUE = "#0093D5"
-WHO_DARK = "#003D6B"
-ALERT_RED = "#CC0000"
-WARNING_ORANGE = "#FF6600"
-SUCCESS_GREEN = "#008000"
+FLASK_URL = os.getenv("FLASK_URL", "http://localhost:5000").rstrip("/")
+API_BASE = f"{FLASK_URL}/api"
 
-st.set_page_config(
-    page_title="WHO EVD Resource Mobilization",
-    page_icon="🏥",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+BLUE, DARK = "#0093D5", "#003865"
+GREEN, AMBER, RED = "#1E8449", "#D97706", "#C0392B"
+INFO, GREY = "#5DADE2", "#BDC3C7"
 
-# ── Shared CSS ────────────────────────────────────────────────────────────────
+IMPL_STATUSES = ["On track", "Delayed", "At risk", "Complete"]
+IMPL_COLOR = {"On track": GREEN, "Delayed": AMBER, "At risk": RED,
+              "Complete": "#7F8C8D", "No update": GREY}
+
+TA_NAME = {
+    1: "Leadership & Coordination",
+    2: "Epidemiological Surveillance",
+    3: "Laboratory & Diagnostics",
+    4: "Case Management, IPC/WASH & SDB",
+    5: "Risk Communication & Community Engagement",
+    6: "Operational Support & Logistics",
+    7: "Research & Strategic Information",
+}
+
+st.set_page_config(page_title="EVD Activity & Budget", page_icon="🏥",
+                   layout="wide", initial_sidebar_state="expanded")
+
 st.markdown(f"""
 <style>
-  [data-testid="stSidebar"] {{ background-color: {WHO_DARK}; }}
-  [data-testid="stSidebar"] * {{ color: white !important; }}
-  .metric-card {{
-      background: white; border-left: 5px solid {WHO_BLUE};
-      border-radius: 6px; padding: 12px 16px;
-      box-shadow: 0 2px 6px rgba(0,0,0,.10);
-  }}
-  .phase-banner {{
-      padding: 10px 20px; border-radius: 6px;
-      font-size: 1.1rem; font-weight: 700;
-      text-align: center; margin-bottom: 12px;
-  }}
-  .alert-box {{
-      background: #fff3cd; border-left: 4px solid #ffc107;
-      padding: 8px 14px; border-radius: 4px; margin: 4px 0;
-  }}
-  .status-deployed  {{ color: {SUCCESS_GREEN}; font-weight: 600; }}
-  .status-committed {{ color: #b8860b; font-weight: 600; }}
-  .status-pipeline  {{ color: {WARNING_ORANGE}; font-weight: 600; }}
-  .status-review    {{ color: {ALERT_RED}; font-weight: 600; }}
+  [data-testid="stSidebar"] {{ background-color: {DARK}; }}
+  [data-testid="stSidebar"] * {{ color: #fff !important; }}
+  [data-testid="stMetricValue"] {{ font-size: 1.5rem; }}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── API helpers ───────────────────────────────────────────────────────────────
-@st.cache_data(ttl=30)
+# ── API ──────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=45)
 def api_get(endpoint: str, params: dict | None = None):
     try:
-        r = requests.get(f"{API_BASE}/{endpoint.lstrip('/')}", params=params, timeout=5)
+        r = requests.get(f"{API_BASE}/{endpoint.lstrip('/')}", params=params, timeout=8)
         r.raise_for_status()
         return r.json().get("data"), None
     except requests.exceptions.ConnectionError:
-        return None, "API unavailable — Flask server is not running."
-    except Exception as exc:
+        return None, "API unavailable — the Flask portal is not reachable."
+    except Exception as exc:  # noqa: BLE001
         return None, str(exc)
 
 
-def api_offline_msg(msg: str):
-    st.error(f"API Error: {msg}")
-    st.info("Make sure Flask is running: `python app.py`")
+def guard(err):
+    if err:
+        st.error(err)
+        st.caption(f"Expected API at: {API_BASE}")
+        st.stop()
 
 
-def fmt_usd(val):
-    if val >= 1_000_000:
-        return f"${val/1_000_000:.1f}M"
-    if val >= 1_000:
-        return f"${val/1_000:.0f}K"
-    return f"${val:,.0f}"
+def usd(v) -> str:
+    return f"${(v or 0):,.0f}"
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+def compact(v) -> str:
+    v = v or 0
+    if abs(v) >= 1e6:
+        return f"${v / 1e6:.2f}M"
+    if abs(v) >= 1e3:
+        return f"${v / 1e3:.0f}K"
+    return f"${v:,.0f}"
+
+
+# ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"""
-    <div style='text-align:center;padding:10px 0 4px;'>
-      <div style='font-size:2rem;'>🏥</div>
-      <div style='font-size:1.1rem;font-weight:800;color:white;'>WHO EOC</div>
-      <div style='font-size:.75rem;color:#a0c4e8;'>EVD Response — DRC</div>
-    </div>
-    <hr style='border-color:#1a5276;margin:8px 0;'>
-    """, unsafe_allow_html=True)
-
-    page = st.radio(
-        "Navigation",
-        [
-            "Overview / Command Center",
-            "Partner Tracker",
-            "Resource Mobilization",
-            "3W Matrix",
-            "Situation Reports",
-            "Reports & Export",
-            "📊 EVD Coverage Analysis",
-            "💰 EVD Funding Matrix",
-        ],
-        label_visibility="collapsed",
-    )
+    st.markdown(
+        "<div style='text-align:center;padding:8px 0;'>"
+        "<div style='font-size:1.8rem;'>🏥</div>"
+        "<div style='font-weight:800;'>WHO EOC</div>"
+        "<div style='font-size:.72rem;color:#a0c4e8;'>EVD Preparedness</div></div>"
+        "<hr style='border-color:#1a5276;'>", unsafe_allow_html=True)
+    page = st.radio("Navigation", [
+        "EVD Coverage Analysis",
+        "EVD Funding Matrix",
+        "Overview",
+        "Implementation Status",
+    ], label_visibility="collapsed")
     st.markdown("<hr style='border-color:#1a5276;'>", unsafe_allow_html=True)
-    st.markdown(f"<div style='font-size:.7rem;color:#a0c4e8;'>Last refresh: {datetime.now():%H:%M:%S}</div>", unsafe_allow_html=True)
-    if st.button("Refresh Data"):
+    if st.button("🔄 Refresh data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
+    st.caption(f"Loaded {datetime.now():%H:%M:%S} · cache 45s")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 1 — OVERVIEW / COMMAND CENTER
-# ══════════════════════════════════════════════════════════════════════════════
-if page == "Overview / Command Center":
-    st.title("EVD Response — Command Center")
+def load_activities():
+    data, err = api_get("evd/activities")
+    guard(err)
+    flat = (data or {}).get("flat", [])
+    return pd.DataFrame(flat), flat
 
-    summary, err = api_get("dashboard/summary")
-    if err:
-        api_offline_msg(err)
-        st.stop()
 
-    # Outbreak phase banner
-    phase = summary.get("current_phase")
-    if phase:
-        phase_name = phase["phase_name"]
-        phase_colors = {
-            "Alert": ALERT_RED, "Mobilization": WARNING_ORANGE,
-            "Response": "#1a7a1a", "Scale-down": WHO_BLUE, "End": "#555",
-        }
-        bg = phase_colors.get(phase_name, WHO_BLUE)
-        st.markdown(
-            f"<div class='phase-banner' style='background:{bg};color:white;'>"
-            f"OUTBREAK PHASE: {phase_name.upper()}&nbsp;&nbsp;|&nbsp;&nbsp;"
-            f"Day {summary['outbreak_day']} of EVD Response"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+# ═════════════════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═════════════════════════════════════════════════════════════════════════════
+if page == "Overview":
+    st.title("EVD Activity Register — Overview")
+    summary, err = api_get("evd/summary")
+    guard(err)
+    df, flat = load_activities()
 
-    # Key metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
-    f = summary.get("funding", {})
-    p = summary.get("partners", {})
-    sr = summary.get("latest_sitrep") or {}
+    budget    = summary.get("total_cost_usd", 0)
+    committed = summary.get("total_committed_usd", 0)
+    availed   = summary.get("total_disbursed_usd", 0)
+    executed  = summary.get("total_executed_usd", 0)
+    comm_gap  = summary.get("total_funding_gap", 0)
+    avail_gap = summary.get("disbursement_gap", 0)
+    cov       = summary.get("coverage_pct", 0)
+    exe       = summary.get("execution_pct", 0)
 
-    col1.metric("Partners Mobilized", p.get("total", 0), delta=f"+{p.get('active', 0)} active")
-    col2.metric("Funding Committed", fmt_usd(f.get("total_committed_usd", 0)))
-    col3.metric("Funding Gap", fmt_usd(f.get("gap_usd", 0)),
-                delta=f"{f.get('coverage_percent', 0):.0f}% covered", delta_color="off")
-    col4.metric("ETUs Operational", summary.get("etus_operational", 0))
-    col5.metric("Outbreak Day", summary.get("outbreak_day", 0))
+    a, b, c, d, e = st.columns(5)
+    a.metric("Activities", summary.get("total_activities", 0))
+    b.metric("Govt Budget", compact(budget))
+    c.metric("Committed", compact(committed), delta=f"{cov:.0f}% of budget", delta_color="off")
+    d.metric("Budget Availed", compact(availed))
+    e.metric("Budget Executed", compact(executed),
+             delta=f"{exe:.0f}% of availed", delta_color="off")
+
+    a, b, c, d = st.columns(4)
+    a.metric("Commitment Gap", compact(comm_gap), help="Govt Budget − Committed")
+    b.metric("Availed Budget Gap", compact(avail_gap), help="Govt Budget − Availed")
+    c.metric("Coverage %", f"{cov:.1f}%", help="Committed ÷ Govt Budget")
+    d.metric("Execution %", f"{exe:.1f}%", help="Executed ÷ Availed")
 
     st.divider()
+    left, right = st.columns(2)
 
-    col_left, col_right = st.columns([1.4, 1])
-
-    with col_left:
-        st.subheader("Latest Situation Report")
-        if sr:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Confirmed Cases", sr.get("confirmed_cases", 0))
-            c2.metric("Deaths", sr.get("deaths", 0))
-            c3.metric("CFR %", f"{sr.get('cfr_percent', 0)}%")
-            st.caption(f"Report date: {sr.get('report_date')}  |  HCW affected: {sr.get('healthcare_workers_affected', 0)}")
-            if sr.get("notes"):
-                st.info(sr["notes"])
-        else:
-            st.warning("No situation reports available.")
-
-        # Funding coverage gauge
-        st.subheader("Funding Coverage")
-        coverage = f.get("coverage_percent", 0)
-        fig_gauge = go.Figure(go.Indicator(
-            mode="gauge+number+delta",
-            value=coverage,
-            number={"suffix": "%"},
-            delta={"reference": 100, "increasing": {"color": SUCCESS_GREEN}},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "bar": {"color": WHO_BLUE},
-                "steps": [
-                    {"range": [0, 40], "color": "#ffd0d0"},
-                    {"range": [40, 75], "color": "#fff0c0"},
-                    {"range": [75, 100], "color": "#d0f0d0"},
-                ],
-                "threshold": {"line": {"color": ALERT_RED, "width": 3}, "value": 80},
-            },
-            title={"text": "Funding Coverage"},
-        ))
-        fig_gauge.update_layout(height=220, margin=dict(t=40, b=0, l=20, r=20))
-        st.plotly_chart(fig_gauge, use_container_width=True)
-
-    with col_right:
-        st.subheader("Alerts")
-        due_data, _ = api_get("resources/reporting-due", {"days": 3})
-        if due_data:
-            overdue = due_data.get("overdue", [])
-            due_soon = due_data.get("due_soon", [])
-            if overdue:
-                st.markdown(f"**{len(overdue)} overdue reports:**")
-                for r in overdue:
-                    st.markdown(
-                        f"<div class='alert-box'>⚠️ <b>{r['partner_name']}</b> — "
-                        f"{r['resource_type']} report overdue since {r['next_report_due']}</div>",
-                        unsafe_allow_html=True,
-                    )
-            if due_soon:
-                st.markdown(f"**{len(due_soon)} due within 3 days:**")
-                for r in due_soon:
-                    st.markdown(
-                        f"<div class='alert-box' style='background:#e8f4fd;border-color:{WHO_BLUE};'>"
-                        f"📋 <b>{r['partner_name']}</b> — due {r['next_report_due']}</div>",
-                        unsafe_allow_html=True,
-                    )
-            if not overdue and not due_soon:
-                st.success("No overdue reports in the next 3 days.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 2 — PARTNER TRACKER
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Partner Tracker":
-    st.title("Partner Tracker")
-
-    partners, err = api_get("partners")
-    if err:
-        api_offline_msg(err)
-        st.stop()
-
-    df = pd.DataFrame(partners)
-
-    if df.empty:
-        st.info("No partners found.")
-        st.stop()
-
-    # Filters
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        types = ["All"] + sorted(df["partner_type"].unique().tolist())
-        sel_type = st.selectbox("Filter by Type", types)
-    with col2:
-        statuses = ["All"] + sorted(df["status"].unique().tolist())
-        sel_status = st.selectbox("Filter by Status", statuses)
-    with col3:
-        countries = ["All"] + sorted(df["country"].unique().tolist())
-        sel_country = st.selectbox("Filter by Country", countries)
-
-    filtered = df.copy()
-    if sel_type != "All":
-        filtered = filtered[filtered["partner_type"] == sel_type]
-    if sel_status != "All":
-        filtered = filtered[filtered["status"] == sel_status]
-    if sel_country != "All":
-        filtered = filtered[filtered["country"] == sel_country]
-
-    st.markdown(f"**{len(filtered)} partners** matching filters")
-    st.dataframe(
-        filtered[["name", "partner_type", "country", "status", "contact_person", "resource_count", "activity_count"]],
-        use_container_width=True, hide_index=True,
-        column_config={
-            "name": "Partner",
-            "partner_type": "Type",
-            "country": "Country",
-            "status": "Status",
-            "contact_person": "Contact",
-            "resource_count": "Resources",
-            "activity_count": "Activities",
-        },
-    )
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("By Status")
-        fig_pie = px.pie(
-            df, names="status", title="Partner Status Distribution",
-            color_discrete_map={
-                "Active": SUCCESS_GREEN, "Negotiating": WHO_BLUE,
-                "Pipeline": WARNING_ORANGE, "Inactive": "#aaa",
-            },
-            hole=0.4,
-        )
-        fig_pie.update_layout(height=300, margin=dict(t=40, b=0))
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-    with col_b:
-        st.subheader("By Type")
-        type_counts = df["partner_type"].value_counts().reset_index()
-        type_counts.columns = ["Type", "Count"]
-        fig_bar = px.bar(type_counts, x="Count", y="Type", orientation="h",
-                         color_discrete_sequence=[WHO_BLUE])
-        fig_bar.update_layout(height=300, margin=dict(t=10, b=0))
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    # Partner detail
-    st.divider()
-    st.subheader("Partner Detail")
-    partner_names = {p["name"]: p["id"] for p in partners}
-    selected_name = st.selectbox("Select partner to view detail", ["— select —"] + list(partner_names))
-    if selected_name != "— select —":
-        detail, _ = api_get(f"partners/{partner_names[selected_name]}")
-        if detail:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(f"**Type:** {detail['partner_type']}  |  **Country:** {detail['country']}")
-                st.markdown(f"**Status:** {detail['status']}  |  **Contact:** {detail.get('contact_person','')} ({detail.get('contact_email','')})")
-                st.markdown("**Resources:**")
-                if detail["resources"]:
-                    st.dataframe(pd.DataFrame(detail["resources"])[["resource_type", "amount", "currency", "status"]],
-                                 hide_index=True, use_container_width=True)
-            with c2:
-                st.markdown("**Activities:**")
-                if detail["activities"]:
-                    st.dataframe(pd.DataFrame(detail["activities"])[["activity_type", "location", "status"]],
-                                 hide_index=True, use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 3 — RESOURCE MOBILIZATION
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Resource Mobilization":
-    st.title("Resource Mobilization")
-
-    resources, err = api_get("resources")
-    if err:
-        api_offline_msg(err)
-        st.stop()
-
-    df = pd.DataFrame(resources)
-
-    gap_data, _ = api_get("resources/funding-gap")
-    by_type_data, _ = api_get("resources/total-by-type")
-
-    # Top KPIs
-    if gap_data:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Committed (USD)", fmt_usd(gap_data["total_committed_usd"]))
-        c2.metric("Total Deployed (USD)", fmt_usd(gap_data["total_deployed_usd"]))
-        c3.metric("Funding Gap", fmt_usd(gap_data["gap_usd"]))
-        c4.metric("Coverage", f"{gap_data['coverage_percent']}%")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if by_type_data:
-            st.subheader("Resources by Type (USD)")
-            type_df = pd.DataFrame(list(by_type_data.items()), columns=["Type", "Amount (USD)"])
-            fig_h = px.bar(type_df.sort_values("Amount (USD)"),
-                           x="Amount (USD)", y="Type", orientation="h",
-                           color_discrete_sequence=[WHO_BLUE])
-            fig_h.update_layout(height=280, margin=dict(t=10, b=0))
-            st.plotly_chart(fig_h, use_container_width=True)
-
-    with col2:
-        if gap_data:
-            st.subheader("Funding Gap Gauge")
-            committed = gap_data["total_committed_usd"]
-            needed = gap_data["estimated_need_usd"]
-            fig_g = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=committed / 1_000_000,
-                number={"suffix": "M USD"},
-                gauge={
-                    "axis": {"range": [0, needed / 1_000_000]},
-                    "bar": {"color": WHO_BLUE},
-                    "threshold": {
-                        "line": {"color": ALERT_RED, "width": 3},
-                        "value": needed / 1_000_000,
-                    },
-                },
-                title={"text": f"Funding vs Need ({fmt_usd(needed)} total)"},
+    # Implementation status of activities (from latest comment)
+    with left:
+        st.subheader("Implementation status")
+        if not df.empty:
+            s = (df["latest_impl_status"].fillna("No update")
+                 .value_counts()
+                 .reindex(IMPL_STATUSES + ["No update"], fill_value=0))
+            fig = go.Figure(go.Pie(
+                labels=s.index, values=s.values, hole=.55,
+                marker=dict(colors=[IMPL_COLOR[k] for k in s.index]),
+                sort=False,
             ))
-            fig_g.update_layout(height=260, margin=dict(t=50, b=0))
-            st.plotly_chart(fig_g, use_container_width=True)
+            fig.update_layout(height=280, margin=dict(t=10, b=0, l=0, r=0),
+                              legend=dict(orientation="h", y=-0.1))
+            st.plotly_chart(fig, width="stretch")
+            logged = int((df["latest_impl_status"].notna()).sum())
+            st.caption(f"{logged} of {len(df)} activities have a status update logged.")
 
-    # Funding timeline
-    if not df.empty and "commitment_date" in df.columns:
-        st.subheader("Funding Commitments Over Time")
-        funding_df = df[df["resource_type"] == "Funding"].copy()
-        if not funding_df.empty:
-            funding_df["commitment_date"] = pd.to_datetime(funding_df["commitment_date"])
-            funding_df = funding_df.sort_values("commitment_date")
-            funding_df["cumulative"] = funding_df["amount"].cumsum()
-            fig_line = px.line(funding_df, x="commitment_date", y="cumulative",
-                               labels={"cumulative": "Cumulative USD", "commitment_date": "Date"},
-                               markers=True, color_discrete_sequence=[WHO_BLUE])
-            fig_line.update_layout(height=240, margin=dict(t=10, b=0))
-            st.plotly_chart(fig_line, use_container_width=True)
-
-    # Resources table with color coding
-    st.subheader("All Resource Commitments")
-    STATUS_COLORS = {
-        "Deployed": "background-color:#d4edda",
-        "Committed": "background-color:#fff3cd",
-        "Pipeline": "background-color:#ffe0b2",
-        "Under Review": "background-color:#f8d7da",
-    }
-
-    def color_status(val):
-        return STATUS_COLORS.get(val, "")
-
-    display_cols = ["partner_name", "resource_type", "description", "amount", "currency", "status", "next_report_due"]
-    display_df = df[display_cols].copy() if all(c in df.columns for c in display_cols) else df
-    st.dataframe(
-        display_df.style.map(color_status, subset=["status"]) if "status" in display_df.columns else display_df,
-        use_container_width=True, hide_index=True,
-    )
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 4 — 3W MATRIX
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "3W Matrix":
-    st.title("3W Matrix — Who does What Where")
-
-    matrix_data, err = api_get("activities/3w-matrix")
-    if err:
-        api_offline_msg(err)
-        st.stop()
-
-    if not matrix_data:
-        st.warning("No activity data available.")
-        st.stop()
-
-    matrix = matrix_data["matrix"]
-    locations = matrix_data["locations"]
-    activity_types = matrix_data["activity_types"]
-
-    # Build DataFrame for 3W table
-    rows = []
-    for loc in locations:
-        row = {"Location": loc}
-        for atype in activity_types:
-            partners = matrix.get(loc, {}).get(atype, [])
-            row[atype] = ", ".join(partners) if partners else ""
-        rows.append(row)
-    df_3w = pd.DataFrame(rows)
-
-    st.subheader("Active Response Map (3W)")
-    if df_3w.empty or "Location" not in df_3w.columns:
-        st.info("No 3W data to display yet.")
-    else:
-        st.dataframe(df_3w.set_index("Location"), use_container_width=True)
-
-    # Activity map (DRC provinces approximate coords)
-    PROVINCE_COORDS = {
-        "Equateur Province": {"lat": 0.5, "lon": 22.0},
-        "Nord-Ubangi": {"lat": 3.5, "lon": 21.5},
-        "Sud-Ubangi": {"lat": 2.5, "lon": 21.0},
-        "Mbandaka": {"lat": 0.048, "lon": 18.26},
-        "Bikoro": {"lat": -0.7, "lon": 18.1},
-        "Ingende": {"lat": -0.26, "lon": 18.94},
-        "Bolomba": {"lat": -0.4, "lon": 19.37},
-    }
-
-    activities, _ = api_get("activities")
-    if activities:
-        act_df = pd.DataFrame(activities)
-        act_df["lat"] = act_df["location"].map(lambda x: PROVINCE_COORDS.get(x, {}).get("lat"))
-        act_df["lon"] = act_df["location"].map(lambda x: PROVINCE_COORDS.get(x, {}).get("lon"))
-        act_df_map = act_df.dropna(subset=["lat", "lon"])
-
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.subheader("Activity Locations (DRC)")
-            if not act_df_map.empty:
-                fig_map = px.scatter_mapbox(
-                    act_df_map, lat="lat", lon="lon",
-                    color="activity_type", hover_name="partner_name",
-                    hover_data={"location": True, "status": True, "lat": False, "lon": False},
-                    zoom=4, height=400,
-                    mapbox_style="open-street-map",
-                )
-                fig_map.update_layout(margin=dict(t=0, b=0))
-                st.plotly_chart(fig_map, use_container_width=True)
-
-        with col2:
-            st.subheader("By Activity Type")
-            type_cnt = act_df["activity_type"].value_counts().reset_index()
-            type_cnt.columns = ["Activity", "Count"]
-            fig_act = px.bar(type_cnt, x="Count", y="Activity", orientation="h",
-                             color_discrete_sequence=[WHO_BLUE])
-            fig_act.update_layout(height=200, margin=dict(t=10, b=0))
-            st.plotly_chart(fig_act, use_container_width=True)
-
-            st.subheader("By Status")
-            status_cnt = act_df["status"].value_counts().reset_index()
-            status_cnt.columns = ["Status", "Count"]
-            fig_st = px.pie(status_cnt, names="Status", values="Count", hole=0.4,
-                            color_discrete_map={"Ongoing": SUCCESS_GREEN,
-                                                "Planned": WHO_BLUE, "Completed": "#888"})
-            fig_st.update_layout(height=200, margin=dict(t=10, b=0))
-            st.plotly_chart(fig_st, use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 5 — SITUATION REPORTS
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Situation Reports":
-    st.title("Situation Reports")
-
-    sitreps, err = api_get("sitreps")
-    if err:
-        api_offline_msg(err)
-        st.stop()
-
-    if sitreps:
-        df_sr = pd.DataFrame(sitreps)
-        df_sr["report_date"] = pd.to_datetime(df_sr["report_date"])
-        df_sr = df_sr.sort_values("report_date")
-
-        # Cases + deaths over time
-        st.subheader("Epidemic Curve")
-        fig_epi = go.Figure()
-        fig_epi.add_trace(go.Scatter(
-            x=df_sr["report_date"], y=df_sr["confirmed_cases"],
-            name="Confirmed Cases", mode="lines+markers",
-            line=dict(color=WARNING_ORANGE, width=2),
-        ))
-        fig_epi.add_trace(go.Scatter(
-            x=df_sr["report_date"], y=df_sr["deaths"],
-            name="Deaths", mode="lines+markers",
-            line=dict(color=ALERT_RED, width=2),
-        ))
-        fig_epi.update_layout(height=300, margin=dict(t=10, b=0),
-                               xaxis_title="Date", yaxis_title="Count",
-                               legend=dict(orientation="h", yanchor="bottom", y=1.02))
-        st.plotly_chart(fig_epi, use_container_width=True)
-
-        # CFR trend
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Case Fatality Rate (%)")
-            fig_cfr = px.line(df_sr, x="report_date", y="cfr_percent",
-                              markers=True, color_discrete_sequence=[ALERT_RED])
-            fig_cfr.update_layout(height=220, margin=dict(t=10, b=0))
-            st.plotly_chart(fig_cfr, use_container_width=True)
-
-        with col2:
-            st.subheader("Funding Mobilized (USD)")
-            fig_fund = px.bar(df_sr, x="report_date", y="total_funding_mobilized",
-                              color_discrete_sequence=[WHO_BLUE])
-            fig_fund.update_layout(height=220, margin=dict(t=10, b=0))
-            st.plotly_chart(fig_fund, use_container_width=True)
-
-        # Latest sitrep
-        latest = sitreps[0]  # already sorted desc by API
-        st.subheader(f"Latest SitRep — Day {latest['outbreak_day']} ({latest['report_date']})")
-        lc1, lc2, lc3, lc4, lc5 = st.columns(5)
-        lc1.metric("Confirmed Cases", latest["confirmed_cases"])
-        lc2.metric("Deaths", latest["deaths"])
-        lc3.metric("CFR", f"{latest['cfr_percent']}%")
-        lc4.metric("HCW Affected", latest["healthcare_workers_affected"])
-        lc5.metric("ETUs Operational", latest["etus_operational"])
-        if latest.get("notes"):
-            st.info(latest["notes"])
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 6 — REPORTS & EXPORT
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Reports & Export":
-    st.title("Reports & Export")
-
-    partners, _ = api_get("partners")
-    resources, _ = api_get("resources")
-    activities, _ = api_get("activities")
-    sitreps, _ = api_get("sitreps")
-    due_data, _ = api_get("resources/reporting-due", {"days": 14})
-
-    # Reporting deadlines
-    st.subheader("Upcoming Reporting Deadlines (14 days)")
-    if due_data:
-        overdue = due_data.get("overdue", [])
-        due_soon = due_data.get("due_soon", [])
-        if overdue:
-            st.error(f"{len(overdue)} overdue reports")
-            st.dataframe(pd.DataFrame(overdue)[["partner_name", "resource_type", "next_report_due", "reporting_frequency"]],
-                         hide_index=True, use_container_width=True)
-        if due_soon:
-            st.warning(f"{len(due_soon)} reports due within 14 days")
-            st.dataframe(pd.DataFrame(due_soon)[["partner_name", "resource_type", "next_report_due", "reporting_frequency"]],
-                         hide_index=True, use_container_width=True)
-
-    # Resource utilization
-    if resources:
-        st.subheader("Resource Utilization Summary")
-        r_df = pd.DataFrame(resources)
-        summary_tbl = r_df.groupby(["resource_type", "status"])["amount"].sum().reset_index()
-        st.dataframe(summary_tbl, hide_index=True, use_container_width=True)
+    # Sub-activity completion
+    with right:
+        st.subheader("Sub-activity completion")
+        subs = pd.json_normalize(df["subtask_summary"]) if not df.empty else pd.DataFrame()
+        if not subs.empty and subs["total"].sum():
+            done, total = int(subs["done"].sum()), int(subs["total"].sum())
+            with_subs = int((subs["total"] > 0).sum())
+            st.metric("Sub-activities completed", f"{done} / {total}",
+                      delta=f"{(done / total * 100):.0f}%", delta_color="off")
+            st.progress(min(done / total, 1.0))
+            st.caption(f"{with_subs} of {len(df)} activities have sub-activities defined.")
+            # activity workflow status
+            ws = df["status"].value_counts()
+            fig = go.Figure(go.Bar(x=ws.values, y=ws.index, orientation="h",
+                                   marker_color=BLUE))
+            fig.update_layout(height=170, margin=dict(t=6, b=0), xaxis_title="Activities")
+            st.plotly_chart(fig, width="stretch")
+        else:
+            st.info("No sub-activities defined yet.")
 
     st.divider()
-    st.subheader("Export Data")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    # CSV exports
-    if partners:
-        p_df = pd.DataFrame(partners)
-        col1.download_button(
-            "Partners CSV", p_df.to_csv(index=False).encode(),
-            file_name="evd_partners.csv", mime="text/csv",
-        )
-    if resources:
-        r_df = pd.DataFrame(resources)
-        col2.download_button(
-            "Resources CSV", r_df.to_csv(index=False).encode(),
-            file_name="evd_resources.csv", mime="text/csv",
-        )
-    if activities:
-        a_df = pd.DataFrame(activities)
-        col3.download_button(
-            "Activities CSV", a_df.to_csv(index=False).encode(),
-            file_name="evd_activities.csv", mime="text/csv",
-        )
-    if sitreps:
-        s_df = pd.DataFrame(sitreps)
-        col4.download_button(
-            "SitReps CSV", s_df.to_csv(index=False).encode(),
-            file_name="evd_sitreps.csv", mime="text/csv",
-        )
-
-    # Excel export
-    st.divider()
-    if st.button("Generate Full Excel Report"):
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            if partners:
-                pd.DataFrame(partners).to_excel(writer, sheet_name="Partners", index=False)
-            if resources:
-                pd.DataFrame(resources).to_excel(writer, sheet_name="Resources", index=False)
-            if activities:
-                pd.DataFrame(activities).to_excel(writer, sheet_name="Activities", index=False)
-            if sitreps:
-                pd.DataFrame(sitreps).to_excel(writer, sheet_name="SitReps", index=False)
-        buf.seek(0)
-        st.download_button(
-            "Download Excel Report",
-            buf,
-            file_name=f"EVD_Response_Report_{date.today()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        st.success("Excel report ready for download.")
-
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 7 — EVD COVERAGE ANALYSIS  (read-only)
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "📊 EVD Coverage Analysis":
-    C_BLUE  = "#0093D5"
-    C_DARK  = "#003865"
-    C_GREEN = "#1E8449"
-    C_AMBER = "#D97706"
-    C_RED   = "#C0392B"
-
-    @st.cache_data(ttl=60)
-    def _evd_summary():
-        return api_get("evd/summary")
-
-    @st.cache_data(ttl=60)
-    def _evd_activities():
-        return api_get("evd/activities")
-
-    @st.cache_data(ttl=60)
-    def _evd_gaps():
-        return api_get("evd/gaps")
-
-    st.title("EVD Preparedness — Coverage Analysis")
-    st.caption(
-        "Read-only analytics view. Data entry is done via the Flask portal. "
-        "Cache refreshes every 60 seconds."
-    )
-
-    col_r, _ = st.columns([1, 6])
-    with col_r:
-        if st.button("🔄 Refresh", key="cov_refresh"):
-            st.cache_data.clear()
-            st.rerun()
-
-    summary, err = _evd_summary()
-    if err or not summary:
-        st.error(f"API offline: {err}")
-        st.info("Flask server must be running at: " + API_BASE)
-        st.stop()
-
-    # ── Top metrics row ───────────────────────────────────────────────────────
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Total Activities",    summary.get("total_activities", 0))
-    m2.metric("Govt Budget (USD)",   f"${summary.get('total_cost_usd', 0):,.0f}")
-    m3.metric("Committed (USD)",     f"${summary.get('total_committed_usd', 0):,.0f}")
-    m4.metric("Funding Gap (USD)",   f"${summary.get('total_funding_gap', 0):,.0f}")
-    m5.metric("Overall Coverage",    f"{summary.get('coverage_pct', 0):.1f}%")
-
-    # Coverage progress bar
-    cov = summary.get("coverage_pct", 0)
-    bar_col = C_GREEN if cov >= 75 else (C_AMBER if cov >= 40 else C_RED)
-    st.markdown(
-        f"<div style='margin:8px 0 4px;'>"
-        f"<span style='font-weight:700;color:{bar_col};'>{cov:.1f}%</span> of the "
-        f"${summary.get('total_cost_usd', 0):,.0f} government plan is covered by partner commitments."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.progress(min(int(cov), 100))
-    st.divider()
-
-    # ── Per-TA stacked bar + gauge ────────────────────────────────────────────
+    st.subheader("By Technical Area")
     by_ta = summary.get("by_technical_area", [])
     if by_ta:
-        ta_df = pd.DataFrame(by_ta)
-        ta_df["short"] = ta_df["technical_area_number"].apply(
-            lambda n: f"TA{n}"
-        )
-
-        col_chart, col_gauge = st.columns([2.5, 1])
-
-        with col_chart:
-            st.subheader("Committed vs Gap by Technical Area")
-            fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(
-                name="Committed",
-                x=ta_df["short"],
-                y=ta_df["total_committed"],
-                marker_color=C_BLUE,
-                text=ta_df["coverage_pct"].apply(lambda v: f"{v:.0f}%"),
-                textposition="inside",
-                textfont=dict(color="white", size=11),
-            ))
-            fig_bar.add_trace(go.Bar(
-                name="Gap (unfunded)",
-                x=ta_df["short"],
-                y=ta_df["total_gap"],
-                marker_color="#F1948A",
-            ))
-            fig_bar.update_layout(
-                barmode="stack",
-                height=340,
-                margin=dict(t=20, b=0),
-                yaxis_title="USD",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-        with col_gauge:
-            st.subheader("Overall Coverage")
-            fig_g = go.Figure(go.Indicator(
-                mode="gauge+number+delta",
-                value=round(cov, 1),
-                delta={"reference": 50, "increasing": {"color": C_GREEN}},
-                number={"suffix": "%"},
-                gauge={
-                    "axis": {"range": [0, 100]},
-                    "bar":  {"color": C_BLUE},
-                    "steps": [
-                        {"range": [0,  40], "color": "#FADBD8"},
-                        {"range": [40, 75], "color": "#FDEBD0"},
-                        {"range": [75,100], "color": "#D5F5E3"},
-                    ],
-                },
-            ))
-            fig_g.update_layout(height=260, margin=dict(t=20, b=0, l=20, r=20))
-            st.plotly_chart(fig_g, use_container_width=True)
-
-    # ── Per-TA summary table ──────────────────────────────────────────────────
-    if by_ta:
-        st.subheader("Technical Area Summary")
-        hdr_cols = st.columns([0.5, 3.5, 1.2, 1.2, 1.2, 0.8, 0.7])
-        for hc, ht in zip(hdr_cols,
-                          ["TA", "Name", "Govt Cost", "Committed", "Gap", "Cov %", "Acts"]):
-            hc.markdown(f"**{ht}**")
-        st.divider()
-        for row in sorted(by_ta, key=lambda x: x["technical_area_number"]):
-            cov_r = row["coverage_pct"]
-            cov_c = C_GREEN if cov_r >= 75 else (C_AMBER if cov_r >= 40 else C_RED)
-            rc = st.columns([0.5, 3.5, 1.2, 1.2, 1.2, 0.8, 0.7])
-            rc[0].markdown(f"**TA{row['technical_area_number']}**")
-            rc[1].write(row["technical_area"])
-            rc[2].write(f"${row['total_cost']:,.0f}")
-            rc[3].markdown(
-                f"<span style='color:{C_GREEN};'>${row['total_committed']:,.0f}</span>",
-                unsafe_allow_html=True,
-            )
-            rc[4].markdown(
-                f"<span style='color:{C_RED};'>${row['total_gap']:,.0f}</span>",
-                unsafe_allow_html=True,
-            )
-            rc[5].markdown(
-                f"<span style='color:{cov_c};font-weight:700;'>{cov_r:.0f}%</span>",
-                unsafe_allow_html=True,
-            )
-            rc[6].write(row["activity_count"])
-
-    # ── Top funding gaps table ────────────────────────────────────────────────
-    st.divider()
-    st.subheader("Top 20 Largest Funding Gaps")
-    gaps, _ = _evd_gaps()
-    if gaps:
-        g_df = pd.DataFrame(gaps[:20])[[
-            "activity_number", "activity_name", "technical_area",
-            "total_cost_usd", "total_committed", "funding_gap", "coverage_pct", "priority",
-        ]].copy()
-        g_df.columns = ["#", "Activity", "Technical Area",
-                        "Govt Cost", "Committed", "Gap (USD)", "Cov %", "Priority"]
-        for c in ["Govt Cost", "Committed", "Gap (USD)"]:
-            g_df[c] = g_df[c].apply(lambda v: f"${v:,.0f}")
-        g_df["Cov %"] = g_df["Cov %"].apply(lambda v: f"{v:.0f}%")
-        st.dataframe(g_df, hide_index=True, use_container_width=True,
-                     height=min(35 * len(g_df) + 38, 600))
-    else:
-        st.success("No funding gaps found — all activities are fully covered!")
+        t = pd.DataFrame(by_ta).sort_values("technical_area_number")
+        t["Availed Gap"] = t["disbursement_gap"]
+        show = t[["technical_area_number", "technical_area", "total_cost",
+                  "total_committed", "total_disbursed", "total_gap",
+                  "Availed Gap", "coverage_pct", "activity_count"]].copy()
+        show.columns = ["TA", "Technical Area", "Govt Cost", "Committed", "Availed",
+                        "Commitment Gap", "Availed Gap", "Cov %", "Acts"]
+        for col in ["Govt Cost", "Committed", "Availed", "Commitment Gap", "Availed Gap"]:
+            show[col] = show[col].map(usd)
+        show["Cov %"] = show["Cov %"].map(lambda v: f"{v:.0f}%")
+        st.dataframe(show, hide_index=True, width="stretch")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 8 — EVD FUNDING MATRIX  (read-only)
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "💰 EVD Funding Matrix":
-    C_BLUE  = "#0093D5"
-    C_DARK  = "#003865"
-    C_GREEN = "#1E8449"
-    C_AMBER = "#D97706"
-    C_RED   = "#C0392B"
+# ═════════════════════════════════════════════════════════════════════════════
+# BUDGET ANALYSIS
+# ═════════════════════════════════════════════════════════════════════════════
+elif page == "EVD Coverage Analysis":
+    st.title("EVD Coverage Analysis")
+    summary, err = api_get("evd/summary")
+    guard(err)
+    df, flat = load_activities()
 
-    @st.cache_data(ttl=60)
-    def _evd_matrix():
-        return api_get("evd/matrix")
+    budget    = summary.get("total_cost_usd", 0)
+    committed = summary.get("total_committed_usd", 0)
+    availed   = summary.get("total_disbursed_usd", 0)
+    executed  = summary.get("total_executed_usd", 0)
 
-    st.title("EVD Funding Matrix")
+    st.subheader("Resource mobilization funnel")
+    stages = ["Govt Budget", "Committed", "Availed", "Executed"]
+    vals = [budget, committed, availed, executed]
+    fig = go.Figure(go.Funnel(
+        y=stages, x=vals,
+        textinfo="value+percent initial",
+        marker=dict(color=[DARK, BLUE, INFO, GREEN]),
+    ))
+    fig.update_layout(height=300, margin=dict(t=10, b=0))
+    st.plotly_chart(fig, width="stretch")
     st.caption(
-        "Partner commitments per government activity — read-only. "
-        "Enter contributions in the Flask portal (/evd/contributions)."
+        f"Of the {usd(budget)} government plan, {usd(committed)} is committed by partners, "
+        f"{usd(availed)} has been released to government, and {usd(executed)} spent."
     )
 
-    col_r2, _ = st.columns([1, 6])
-    with col_r2:
-        if st.button("🔄 Refresh", key="mx_refresh2"):
-            st.cache_data.clear()
-            st.rerun()
+    st.divider()
+    by_ta = summary.get("by_technical_area", [])
+    if by_ta:
+        t = pd.DataFrame(by_ta).sort_values("technical_area_number")
+        t["ta"] = t["technical_area_number"].map(lambda n: f"TA{n}")
 
-    matrix_data, err = _evd_matrix()
-    if err or not matrix_data:
-        st.error(f"API offline: {err}")
-        st.info("Flask server must be running at: " + API_BASE)
+        metric = st.radio("View", ["Commitment (Committed vs Gap)",
+                                   "Availed budget (Availed vs Gap)"],
+                          horizontal=True)
+        if metric.startswith("Commitment"):
+            got, gap, got_c = t["total_committed"], t["total_gap"], BLUE
+        else:
+            got, gap, got_c = t["total_disbursed"], t["disbursement_gap"], INFO
+
+        fig = go.Figure()
+        fig.add_bar(name="Secured", x=t["ta"], y=got, marker_color=got_c)
+        fig.add_bar(name="Gap", x=t["ta"], y=gap, marker_color="#F1948A")
+        fig.update_layout(barmode="stack", height=340, yaxis_title="USD",
+                          margin=dict(t=10, b=0),
+                          legend=dict(orientation="h", y=1.05))
+        st.plotly_chart(fig, width="stretch")
+
+    st.divider()
+    if not df.empty:
+        st.subheader("Largest gaps")
+        g = df.copy()
+        g["ta"] = g["technical_area_number"].map(lambda n: f"TA{n}")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.caption("**Commitment gap** — Govt Cost − Committed")
+            top = g[g["funding_gap"] > 0].nlargest(12, "funding_gap")
+            tbl = top[["activity_number", "activity_name", "ta", "total_cost_usd",
+                       "total_committed", "funding_gap", "coverage_pct"]].copy()
+            tbl.columns = ["#", "Activity", "TA", "Cost", "Committed", "Gap", "Cov %"]
+            for col in ["Cost", "Committed", "Gap"]:
+                tbl[col] = tbl[col].map(usd)
+            tbl["Cov %"] = tbl["Cov %"].map(lambda v: f"{v:.0f}%")
+            st.dataframe(tbl, hide_index=True, width="stretch", height=430)
+        with c2:
+            st.caption("**Availed budget gap** — Govt Cost − Availed")
+            top = g[g["disbursement_gap"] > 0].nlargest(12, "disbursement_gap")
+            tbl = top[["activity_number", "activity_name", "ta", "total_cost_usd",
+                       "total_disbursed", "disbursement_gap"]].copy()
+            tbl.columns = ["#", "Activity", "TA", "Cost", "Availed", "Gap"]
+            for col in ["Cost", "Availed", "Gap"]:
+                tbl[col] = tbl[col].map(usd)
+            st.dataframe(tbl, hide_index=True, width="stretch", height=430)
+
+        # overspend flag
+        over = df[(df["total_disbursed"] > 0) & (df["execution_pct"] > 100)]
+        if not over.empty:
+            st.warning(f"{len(over)} activities have spent more than has been availed "
+                       f"(Execution % > 100).")
+            o = over[["activity_number", "activity_name", "total_disbursed",
+                      "budget_executed_usd", "execution_pct"]].copy()
+            o.columns = ["#", "Activity", "Availed", "Executed", "Exec %"]
+            for col in ["Availed", "Executed"]:
+                o[col] = o[col].map(usd)
+            o["Exec %"] = o["Exec %"].map(lambda v: f"{v:.0f}%")
+            st.dataframe(o, hide_index=True, width="stretch")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# IMPLEMENTATION STATUS
+# ═════════════════════════════════════════════════════════════════════════════
+elif page == "Implementation Status":
+    st.title("Implementation Status")
+    df, flat = load_activities()
+    if df.empty:
+        st.info("No activities found.")
         st.stop()
 
-    activities    = matrix_data.get("activities", [])
-    partner_names = matrix_data.get("partners", [])
-    matrix        = matrix_data.get("matrix", {})
-    row_totals    = matrix_data.get("row_totals", {})
-    col_totals    = matrix_data.get("col_totals", {})
-    grand_total   = matrix_data.get("grand_total", 0)
+    df["ta"] = df["technical_area_number"].map(lambda n: f"TA{n}")
+    df["impl"] = df["latest_impl_status"].fillna("No update")
+    sub = pd.json_normalize(df["subtask_summary"])
+    df["sub_done"], df["sub_total"], df["sub_pct"] = sub["done"], sub["total"], sub["pct"]
 
-    # ── Per-partner total cards ───────────────────────────────────────────────
-    if col_totals:
-        sorted_partners = sorted(col_totals.items(), key=lambda x: x[1], reverse=True)
-        cols_per_row = 6
-        chunks = [sorted_partners[i:i+cols_per_row]
-                  for i in range(0, len(sorted_partners), cols_per_row)]
-        for chunk in chunks:
-            pcols = st.columns(len(chunk))
-            for pc, (pname, total) in zip(pcols, chunk):
-                pc.metric(pname, f"${total:,.0f}" if total else "$0")
-        st.caption(f"**Grand total committed: ${grand_total:,.0f}**")
-        st.divider()
-
-    # ── Filters ───────────────────────────────────────────────────────────────
     f1, f2, f3 = st.columns(3)
-    TA_OPTS = {
-        1: "TA1: Leadership and Coordination",
-        2: "TA2: Epidemiological Surveillance",
-        3: "TA3: Laboratory and Diagnostics",
-        4: "TA4: Case Management, IPC/WASH and SDB",
-        5: "TA5: Risk Communication and Community Engagement",
-        6: "TA6: Operational Support and Logistics",
-        7: "TA7: Research and Strategic Information",
-    }
-    with f1:
-        f_ta = st.selectbox("Filter by Technical Area",
-                            ["All TAs"] + list(TA_OPTS.values()), key="mx2_ta")
-    with f2:
-        f_psel = st.multiselect("Show Partners", partner_names,
-                                default=partner_names, key="mx2_psel")
-    with f3:
-        gaps_only = st.toggle("Only activities with gaps", key="mx2_gaps")
+    ta_opt = f1.selectbox("Technical Area", ["All"] + [f"TA{n}: {v}" for n, v in TA_NAME.items()])
+    impl_opt = f2.selectbox("Implementation status", ["All", "No update"] + IMPL_STATUSES)
+    wf_opt = f3.selectbox("Workflow status", ["All"] + sorted(df["status"].unique()))
 
-    vis_acts = activities
-    if f_ta != "All TAs":
-        ta_num = int(f_ta.split(":")[0].replace("TA", ""))
-        vis_acts = [a for a in activities if a.get("technical_area_number") == ta_num]
+    view = df
+    if ta_opt != "All":
+        view = view[view["technical_area_number"] == int(ta_opt.split(":")[0][2:])]
+    if impl_opt != "All":
+        view = view[view["impl"] == impl_opt]
+    if wf_opt != "All":
+        view = view[view["status"] == wf_opt]
+
+    # charts
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Implementation status by TA")
+        piv = (df.groupby(["ta", "impl"]).size().unstack(fill_value=0)
+               .reindex(columns=IMPL_STATUSES + ["No update"], fill_value=0))
+        fig = go.Figure()
+        for s in IMPL_STATUSES + ["No update"]:
+            fig.add_bar(name=s, x=piv.index, y=piv[s], marker_color=IMPL_COLOR[s])
+        fig.update_layout(barmode="stack", height=280, margin=dict(t=10, b=0),
+                          legend=dict(orientation="h", y=1.05))
+        st.plotly_chart(fig, width="stretch")
+    with c2:
+        st.subheader("Sub-activity completion")
+        tot = int(df["sub_total"].sum())
+        done = int(df["sub_done"].sum())
+        if tot:
+            fig = go.Figure(go.Bar(
+                x=[done, tot - done], y=["Sub-activities", "Sub-activities"],
+                orientation="h", marker_color=[GREEN, GREY],
+                base=[0, done], showlegend=False,
+            ))
+            fig.update_layout(barmode="stack", height=120, margin=dict(t=10, b=0),
+                              xaxis_title="")
+            st.plotly_chart(fig, width="stretch")
+            st.metric("Completed", f"{done} / {tot}",
+                      delta=f"{done / tot * 100:.0f}%", delta_color="off")
+        else:
+            st.info("No sub-activities defined yet.")
+        st.metric("Activities with a status update",
+                  f"{int(df['latest_impl_status'].notna().sum())} / {len(df)}")
+
+    st.divider()
+    st.subheader(f"Activities ({len(view)})")
+    tbl = view[["activity_number", "activity_name", "ta", "status", "impl",
+                "sub_done", "sub_total", "comment_count",
+                "coverage_pct", "execution_pct"]].copy()
+    tbl["Sub-activities"] = tbl.apply(
+        lambda r: f"{r['sub_done']}/{r['sub_total']}" if r["sub_total"] else "—", axis=1)
+    tbl = tbl.drop(columns=["sub_done", "sub_total"])
+    tbl.columns = ["#", "Activity", "TA", "Workflow", "Impl. status",
+                   "Comments", "Cov %", "Exec %", "Sub-activities"]
+    tbl = tbl[["#", "Activity", "TA", "Workflow", "Impl. status",
+               "Sub-activities", "Comments", "Cov %", "Exec %"]]
+    tbl["Cov %"] = tbl["Cov %"].map(lambda v: f"{v:.0f}%")
+    tbl["Exec %"] = tbl["Exec %"].map(lambda v: f"{v:.0f}%" if v else "—")
+    st.dataframe(tbl, hide_index=True, width="stretch",
+                 height=min(35 * len(tbl) + 40, 480))
+
+    st.divider()
+    st.subheader("Activity detail")
+    labels = {f"{a['activity_number']}  {a['activity_name']}": a["id"] for a in flat}
+    pick = st.selectbox("Select an activity", ["— select —"] + list(labels))
+    if pick != "— select —":
+        d, e = api_get(f"evd/activities/{labels[pick]}")
+        if e:
+            st.error(e)
+        elif d:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Govt Cost", usd(d["total_cost_usd"]))
+            m2.metric("Committed", usd(d["total_committed"]))
+            m3.metric("Availed", usd(d["total_disbursed"]))
+            m4.metric("Executed", usd(d["budget_executed_usd"]))
+
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                st.markdown("**Sub-activities**")
+                subs = d.get("sub_activities", [])
+                if subs:
+                    sdf = pd.DataFrame(subs)[["name", "status", "notes"]]
+                    sdf.columns = ["Sub-activity", "Status", "Notes"]
+                    st.dataframe(sdf, hide_index=True, width="stretch")
+                else:
+                    st.caption("None defined.")
+            with cc2:
+                st.markdown("**Implementation status log**")
+                comments = d.get("comments", [])
+                if comments:
+                    for c in comments:
+                        colr = IMPL_COLOR.get(c["impl_status"], GREY)
+                        when = (c["created_at"] or "")[:16].replace("T", " ")
+                        st.markdown(
+                            f"<div style='border-left:3px solid {colr};padding:2px 10px;"
+                            f"margin-bottom:8px;'>"
+                            f"<span style='color:{colr};font-weight:700;'>{c['impl_status']}</span>"
+                            f" &nbsp;<span style='color:#888;font-size:.85em;'>"
+                            f"{c.get('author_name') or 'Unknown'} · {when}"
+                            f"{' (edited)' if c.get('edited') else ''}</span><br>"
+                            f"{c['body']}</div>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("No updates logged.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PARTNER FUNDING MATRIX
+# ═════════════════════════════════════════════════════════════════════════════
+elif page == "EVD Funding Matrix":
+    st.title("EVD Funding Matrix")
+    st.caption("Partner amounts per government activity. Enter these in the Flask portal "
+               "(/evd/contributions).")
+
+    data, err = api_get("evd/matrix")
+    guard(err)
+    activities = data.get("activities", [])
+    partners = data.get("partners", [])
+    matrix = data.get("matrix", {})
+    row_totals = data.get("row_totals", {})
+
+    basis = st.radio("Amount", ["Committed", "Availed (disbursed)"], horizontal=True)
+    key = "amount_committed" if basis == "Committed" else "amount_disbursed"
+
+    f1, f2, f3 = st.columns(3)
+    ta_opt = f1.selectbox("Technical Area",
+                          ["All"] + [f"TA{n}: {v}" for n, v in TA_NAME.items()])
+    psel = f2.multiselect("Partners", partners, default=partners)
+    gaps_only = f3.toggle("Only activities with a commitment gap")
+
+    acts = activities
+    if ta_opt != "All":
+        n = int(ta_opt.split(":")[0][2:])
+        acts = [a for a in acts if a.get("technical_area_number") == n]
     if gaps_only:
-        vis_acts = [a for a in vis_acts if a.get("funding_gap", 0) > 0]
-    vis_partners = [p for p in partner_names if p in f_psel]
-
-    if not vis_acts:
-        st.info("No activities match the current filters.")
+        acts = [a for a in acts if a.get("funding_gap", 0) > 0]
+    vis_p = [p for p in partners if p in psel]
+    if not acts:
+        st.info("No activities match the filters.")
         st.stop()
 
-    # ── Build matrix dataframe ────────────────────────────────────────────────
     rows = []
-    prev_ta = None
-    for a in vis_acts:
-        ta_name = a.get("technical_area", "")
-        if ta_name != prev_ta:
-            prev_ta = ta_name
-            rows.append({"__type": "header",
-                         "Activity": f"▌ TA{a.get('technical_area_number','')}: {ta_name}"})
-        row = {
-            "__type": "data",
-            "Activity": f"{a.get('activity_number', '')}  {a['activity_name'][:65]}",
-            "Govt Cost": a.get("total_cost_usd", 0),
-        }
-        a_id = str(a["id"])
-        for pname in vis_partners:
-            cell = matrix.get(a_id, {}).get(pname)
-            row[pname] = cell["amount_committed"] if cell else 0
-        row["Total Committed"] = float(row_totals.get(a_id, 0))
-        row["Gap (USD)"] = max(0, a.get("total_cost_usd", 0) - row["Total Committed"])
-        rows.append(row)
+    prev = None
+    for a in acts:
+        ta = a.get("technical_area", "")
+        if ta != prev:
+            prev = ta
+            rows.append({"Activity": f"▌ TA{a.get('technical_area_number','')}: {ta}",
+                         "_hdr": True})
+        aid = str(a["id"])
+        r = {"Activity": f"{a.get('activity_number','')}  {a['activity_name'][:60]}",
+             "Govt Cost": a.get("total_cost_usd", 0), "_hdr": False}
+        secured = 0.0
+        for p in vis_p:
+            cell = matrix.get(aid, {}).get(p)
+            v = (cell or {}).get(key, 0) if cell else 0
+            r[p] = v
+            secured += v
+        r["Secured"] = secured
+        r["Gap"] = max(0, a.get("total_cost_usd", 0) - secured)
+        rows.append(r)
 
     df = pd.DataFrame(rows).fillna(0)
-    money_cols = ["Govt Cost"] + vis_partners + ["Total Committed", "Gap (USD)"]
-    money_cols = [c for c in money_cols if c in df.columns]
+    money_cols = ["Govt Cost"] + vis_p + ["Secured", "Gap"]
+    disp = df.copy()
+    for c in money_cols:
+        disp[c] = df.apply(
+            lambda x: "" if x["_hdr"] else (f"${x[c]:,.0f}" if x[c] > 0 else "—"), axis=1)
+    disp = disp.drop(columns=["_hdr"])
+    st.dataframe(disp, hide_index=True, width="stretch",
+                 height=min(34 * len(disp) + 40, 700))
 
-    display_df = df.copy()
-    for col in money_cols:
-        if col in df.columns:
-            display_df[col] = df.apply(
-                lambda r: ("" if r["__type"] == "header"
-                           else (f"${r[col]:,.0f}" if r[col] > 0 else "—")),
-                axis=1,
-            )
+    tot_cost = sum(a.get("total_cost_usd", 0) for a in acts)
+    tot_sec = sum(
+        (matrix.get(str(a["id"]), {}).get(p, {}) or {}).get(key, 0)
+        for a in acts for p in vis_p)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Govt Cost (filtered)", usd(tot_cost))
+    k2.metric(f"{basis} (filtered)", usd(tot_sec))
+    k3.metric("Gap (filtered)", usd(max(0, tot_cost - tot_sec)))
 
-    def _style_gap(val):
-        if val in ("", "—"):
-            return ""
-        try:
-            v = float(str(val).replace("$", "").replace(",", ""))
-        except ValueError:
-            return ""
-        return (f"color:{C_GREEN};font-weight:600" if v == 0
-                else f"color:{C_RED};font-weight:600")
-
-    display_df = display_df.drop(columns=["__type"])
-    styled = display_df.style
-    if "Gap (USD)" in display_df.columns:
-        styled = styled.map(_style_gap, subset=["Gap (USD)"])
-
-    st.dataframe(styled, use_container_width=True, hide_index=True,
-                 height=min(35 * len(display_df) + 38, 750))
-
-    # Grand total row
-    total_cost_vis = sum(a.get("total_cost_usd", 0) for a in vis_acts)
-    total_com_vis  = sum(float(row_totals.get(str(a["id"]), 0)) for a in vis_acts)
-    total_gap_vis  = total_cost_vis - total_com_vis
-
-    gt_parts = [f"**GRAND TOTAL** ({len(vis_acts)} activities)", f"**${total_cost_vis:,.0f}**"]
-    for pname in vis_partners:
-        pt = sum(
-            matrix.get(str(a["id"]), {}).get(pname, {}).get("amount_committed", 0)
-            for a in vis_acts
-        )
-        gt_parts.append(f"**${pt:,.0f}**" if pt else "**—**")
-    gt_parts += [f"**${total_com_vis:,.0f}**", f"**${total_gap_vis:,.0f}**"]
-
-    gt_cols = st.columns([3.5, 1] + [1] * len(vis_partners) + [1.2, 1])
-    for gc, gv in zip(gt_cols, gt_parts):
-        gc.markdown(gv)
-
-    # ── Excel export ──────────────────────────────────────────────────────────
-    st.divider()
-    if st.button("📥 Export to Excel", key="mx2_export"):
+    if st.button("📥 Export matrix to Excel"):
         buf = io.BytesIO()
-        from openpyxl import Workbook
-        from openpyxl.styles import PatternFill, Font, Alignment
-        from openpyxl.utils import get_column_letter
-
-        wb  = Workbook()
-        ws  = wb.active
-        ws.title = "Partner Support Matrix"
-
-        hdr_fill  = PatternFill("solid", fgColor="003865")
-        ta_fill   = PatternFill("solid", fgColor="1A5276")
-        supp_fill = PatternFill("solid", fgColor="0093D5")
-        gap_red   = PatternFill("solid", fgColor="F1948A")
-        gap_grn   = PatternFill("solid", fgColor="A9DFBF")
-        wfont     = Font(color="FFFFFF", bold=True)
-
-        hdr = (["Activity", "Govt Cost (USD)"]
-               + vis_partners
-               + ["Total Committed (USD)", "Funding Gap (USD)"])
-        ws.append(hdr)
-        for cell in ws[1]:
-            cell.fill = hdr_fill
-            cell.font = wfont
-            cell.alignment = Alignment(horizontal="center", wrap_text=True)
-
-        prev_xl = None
-        for a in vis_acts:
-            ta_xl = a.get("technical_area", "")
-            if ta_xl != prev_xl:
-                prev_xl = ta_xl
-                ws.append([f"▌ TA{a['technical_area_number']}: {ta_xl}"]
-                          + [""] * (len(hdr) - 1))
-                for c in ws[ws.max_row]:
-                    c.fill = ta_fill
-                    c.font = wfont
-
-            a_id     = str(a["id"])
-            row_data = [f"{a.get('activity_number','')} {a['activity_name']}",
-                        a.get("total_cost_usd", 0)]
-            for pname in vis_partners:
-                cell = matrix.get(a_id, {}).get(pname)
-                row_data.append(cell["amount_committed"] if cell else 0)
-            t_com = float(row_totals.get(a_id, 0))
-            gap_v = max(0, a.get("total_cost_usd", 0) - t_com)
-            row_data += [t_com, gap_v]
-            ws.append(row_data)
-
-            last = ws.max_row
-            ws.cell(last, len(hdr)).fill     = gap_grn if gap_v == 0 else gap_red
-            ws.cell(last, len(hdr) - 1).fill = supp_fill
-
-        ws.column_dimensions["A"].width = 65
-        for i in range(2, len(hdr) + 1):
-            ws.column_dimensions[get_column_letter(i)].width = 18
-
-        wb.save(buf)
+        with pd.ExcelWriter(buf, engine="openpyxl") as w:
+            disp.to_excel(w, index=False, sheet_name="Funding Matrix")
         buf.seek(0)
-        st.download_button(
-            "⬇ Download Partner Support Matrix",
-            buf,
-            file_name=f"EVD_Funding_Matrix_{date.today()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        st.success("Excel export ready.")
-
+        st.download_button("⬇ Download", buf,
+                           file_name=f"EVD_Funding_Matrix_{date.today()}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet")

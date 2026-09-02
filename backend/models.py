@@ -297,6 +297,7 @@ class GovernmentActivity(db.Model):
     sub_section           = db.Column(db.String(120))
     activity_name         = db.Column(db.Text, nullable=False)
     total_cost_usd        = db.Column(db.Float, default=0)
+    budget_executed_usd   = db.Column(db.Float, default=0)
     status                = db.Column(db.String(50), default="Planned")
     priority              = db.Column(db.String(20), default="Medium")
     notes                 = db.Column(db.Text)
@@ -309,14 +310,50 @@ class GovernmentActivity(db.Model):
         return sum(c.amount_committed_usd or 0 for c in self.partner_contributions)
 
     @property
+    def total_disbursed(self):
+        """Funds partners have actually transferred to the government."""
+        return sum(c.amount_disbursed_usd or 0 for c in self.partner_contributions)
+
+    @property
     def funding_gap(self):
+        """Commitment gap: planned budget minus what partners have committed."""
         return max(0, (self.total_cost_usd or 0) - self.total_committed)
+
+    @property
+    def disbursement_gap(self):
+        """Disbursement gap: planned budget minus what partners have disbursed."""
+        return max(0, (self.total_cost_usd or 0) - self.total_disbursed)
 
     @property
     def coverage_pct(self):
         if not self.total_cost_usd:
             return 0
         return min(100, self.total_committed / self.total_cost_usd * 100)
+
+    @property
+    def execution_pct(self):
+        """Budget executed as a percentage of funds disbursed to the government
+        (uncapped — a value above 100 means more was spent than received)."""
+        if not self.total_disbursed:
+            return 0
+        return (self.budget_executed_usd or 0) / self.total_disbursed * 100
+
+    @property
+    def subtask_summary(self):
+        subs = list(self.sub_activities)
+        total = len(subs)
+        done = sum(1 for s in subs if s.status == "Completed")
+        return {
+            "total": total,
+            "done": done,
+            "pct": round(done / total * 100) if total else 0,
+        }
+
+    @property
+    def latest_impl_status(self):
+        """Implementation status from the most recent comment, or None."""
+        comments = list(self.comments)
+        return comments[0].impl_status if comments else None
 
     def to_dict(self):
         return {
@@ -327,12 +364,19 @@ class GovernmentActivity(db.Model):
             "sub_section": self.sub_section,
             "activity_name": self.activity_name,
             "total_cost_usd": self.total_cost_usd or 0,
+            "budget_executed_usd": self.budget_executed_usd or 0,
+            "execution_pct": round(self.execution_pct, 1),
             "status": self.status,
             "priority": self.priority,
             "notes": self.notes,
             "total_committed": round(self.total_committed, 2),
+            "total_disbursed": round(self.total_disbursed, 2),
             "funding_gap": round(self.funding_gap, 2),
+            "disbursement_gap": round(self.disbursement_gap, 2),
             "coverage_pct": round(self.coverage_pct, 1),
+            "subtask_summary": self.subtask_summary,
+            "comment_count": len(list(self.comments)),
+            "latest_impl_status": self.latest_impl_status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -404,3 +448,94 @@ class PartnerContribution(db.Model):
         return (f"<PartnerContribution partner={self.partner_name} "
                 f"activity={self.government_activity_id} "
                 f"${self.amount_committed_usd}>")
+
+
+class SubActivity(db.Model):
+    """A concrete task under a GovernmentActivity, with its own status."""
+    __tablename__ = "sub_activities"
+
+    STATUSES = ("Planned", "In progress", "Completed", "Blocked")
+
+    id                    = db.Column(db.Integer, primary_key=True)
+    government_activity_id = db.Column(db.Integer,
+                               db.ForeignKey("government_activities.id",
+                                             ondelete="CASCADE"),
+                               nullable=False)
+    name        = db.Column(db.Text, nullable=False)
+    status      = db.Column(db.String(30), nullable=False, default="Planned")
+    notes       = db.Column(db.Text)
+    sort_order  = db.Column(db.Integer, default=0)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    government_activity = db.relationship(
+        "GovernmentActivity",
+        backref=db.backref("sub_activities",
+                           cascade="all, delete-orphan",
+                           passive_deletes=True,
+                           order_by="SubActivity.sort_order, SubActivity.id"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "government_activity_id": self.government_activity_id,
+            "name": self.name,
+            "status": self.status,
+            "notes": self.notes,
+            "sort_order": self.sort_order,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<SubActivity {self.name[:40]} ({self.status})>"
+
+
+class ActivityComment(db.Model):
+    """A timestamped implementation-status note on a GovernmentActivity."""
+    __tablename__ = "activity_comments"
+
+    IMPL_STATUSES = ("On track", "Delayed", "At risk", "Complete")
+
+    id                    = db.Column(db.Integer, primary_key=True)
+    government_activity_id = db.Column(db.Integer,
+                               db.ForeignKey("government_activities.id",
+                                             ondelete="CASCADE"),
+                               nullable=False)
+    author_id   = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    author_name = db.Column(db.String(150))
+    body        = db.Column(db.Text, nullable=False)
+    impl_status = db.Column(db.String(20), nullable=False, default="On track")
+    edited      = db.Column(db.Boolean, default=False)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    government_activity = db.relationship(
+        "GovernmentActivity",
+        backref=db.backref("comments",
+                           cascade="all, delete-orphan",
+                           passive_deletes=True,
+                           order_by="ActivityComment.created_at.desc()"),
+    )
+    author = db.relationship("User")
+
+    def can_modify(self, user):
+        return (user is not None and user.is_authenticated
+                and (self.author_id == user.id or user.role == "admin"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "government_activity_id": self.government_activity_id,
+            "author_id": self.author_id,
+            "author_name": self.author_name,
+            "body": self.body,
+            "impl_status": self.impl_status,
+            "edited": self.edited,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<ActivityComment activity={self.government_activity_id} by {self.author_name}>"
